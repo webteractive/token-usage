@@ -41,45 +41,22 @@ final class MenuBarLabelRendererTests: XCTestCase {
     }
 
     func testWorstOfShowsHighestAcrossBothProviders() {
-        guard case .segments(let segs) = render(.worstOf, sample) else {
-            return XCTFail("expected segments")
-        }
+        let segs = render(.worstOf, sample)
         XCTAssertEqual(segs.map(\.text), ["● 47%"])
         XCTAssertEqual(segs[0].severity, .normal)
     }
 
     func testPerToolShowsEachProvidersDominantWindow() {
-        guard case .segments(let segs) = render(.perTool, sample) else {
-            return XCTFail("expected segments")
-        }
+        let segs = render(.perTool, sample)
         XCTAssertEqual(segs.map(\.text), ["C 47%", "X 3%"])
     }
 
     func testFullShowsAllFourAsPairs() {
-        guard case .segments(let segs) = render(.full, sample) else {
-            return XCTFail("expected segments")
-        }
+        let segs = render(.full, sample)
         XCTAssertEqual(segs.map(\.text), ["C 47/31", "X 3/1"])
     }
 
-    func testRingsFillProportionallyToDominantWindow() {
-        guard case .rings(let rings) = render(.rings, sample) else {
-            return XCTFail("expected rings")
-        }
-        XCTAssertEqual(rings.count, 2)
-        XCTAssertEqual(rings[0].fill, 0.47, accuracy: 0.001)
-        XCTAssertEqual(rings[1].fill, 0.03, accuracy: 0.001)
-    }
 
-    /// Above 100% the arc must clamp rather than wrap around.
-    func testRingFillClampsAtFull() {
-        let u = usage(
-            claude: pair(session: window(150), weekly: nil),
-            codex: .empty
-        )
-        guard case .rings(let rings) = render(.rings, u) else { return XCTFail("expected rings") }
-        XCTAssertEqual(rings[0].fill, 1.0, accuracy: 0.001)
-    }
 
     /// Non-normal severity adds its shape marker in the per-tool mode; normal
     /// stays clean so the common case is not noisy.
@@ -88,9 +65,7 @@ final class MenuBarLabelRendererTests: XCTestCase {
             claude: pair(session: window(78), weekly: nil),
             codex: pair(session: window(93), weekly: nil)
         )
-        guard case .segments(let segs) = render(.perTool, u) else {
-            return XCTFail("expected segments")
-        }
+        let segs = render(.perTool, u)
         XCTAssertEqual(segs.map(\.text), ["C ▲ 78%", "X ■ 93%"])
         XCTAssertEqual(segs[0].severity, .warning)
         XCTAssertEqual(segs[1].severity, .critical)
@@ -100,9 +75,7 @@ final class MenuBarLabelRendererTests: XCTestCase {
     /// identity glyph as well as its severity cue.
     func testWorstOfMarkerTracksSeverity() {
         let u = usage(claude: pair(session: window(93), weekly: nil), codex: .empty)
-        guard case .segments(let segs) = render(.worstOf, u) else {
-            return XCTFail("expected segments")
-        }
+        let segs = render(.worstOf, u)
         XCTAssertEqual(segs.map(\.text), ["■ 93%"])
     }
 
@@ -111,9 +84,7 @@ final class MenuBarLabelRendererTests: XCTestCase {
             claude: pair(session: window(47, observedAgo: 3600), weekly: nil),
             codex: .empty
         )
-        guard case .segments(let segs) = render(.perTool, u) else {
-            return XCTFail("expected segments")
-        }
+        let segs = render(.perTool, u)
         XCTAssertEqual(segs[0].text, "C ‹47%")
         XCTAssertTrue(segs[0].isStale)
     }
@@ -122,9 +93,7 @@ final class MenuBarLabelRendererTests: XCTestCase {
     /// reported must never render as 0%.
     func testNoDataRendersEmDashNotZero() {
         let u = usage(claude: .empty, codex: pair(session: window(3), weekly: nil))
-        guard case .segments(let segs) = render(.perTool, u) else {
-            return XCTFail("expected segments")
-        }
+        let segs = render(.perTool, u)
         XCTAssertEqual(segs.map(\.text), ["C —", "X 3%"])
         XCTAssertFalse(segs[0].hasData)
     }
@@ -135,25 +104,19 @@ final class MenuBarLabelRendererTests: XCTestCase {
             claude: pair(session: window(47, resetsIn: -1), weekly: nil),
             codex: .empty
         )
-        guard case .segments(let segs) = render(.perTool, u) else {
-            return XCTFail("expected segments")
-        }
+        let segs = render(.perTool, u)
         XCTAssertEqual(segs[0].text, "C 0%")
         XCTAssertTrue(segs[0].hasData)
     }
 
     func testPercentagesRoundToWholeNumbers() {
         let u = usage(claude: pair(session: window(47.6), weekly: nil), codex: .empty)
-        guard case .segments(let segs) = render(.perTool, u) else {
-            return XCTFail("expected segments")
-        }
+        let segs = render(.perTool, u)
         XCTAssertEqual(segs[0].text, "C 48%")
     }
 
     func testProviderOrderIsAlwaysClaudeThenCodex() {
-        guard case .segments(let segs) = render(.perTool, sample) else {
-            return XCTFail("expected segments")
-        }
+        let segs = render(.perTool, sample)
         XCTAssertTrue(segs[0].text.hasPrefix("C"))
         XCTAssertTrue(segs[1].text.hasPrefix("X"))
     }

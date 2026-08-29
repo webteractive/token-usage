@@ -6,7 +6,6 @@ import Foundation
 public enum DisplayMode: String, CaseIterable, Sendable, Identifiable {
     case worstOf
     case perTool
-    case rings
     case full
 
     public var id: String { rawValue }
@@ -15,7 +14,6 @@ public enum DisplayMode: String, CaseIterable, Sendable, Identifiable {
         switch self {
         case .worstOf: "Worst of all windows"
         case .perTool: "One per tool"
-        case .rings: "Rings"
         case .full: "All four"
         }
     }

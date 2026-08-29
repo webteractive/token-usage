@@ -91,8 +91,7 @@ Switchable in Settings, with a live preview:
 |---|---|
 | Worst of all windows | `● 86%` |
 | One per tool (default) | `C ▲ 86% · X 1%` |
-| Rings | `◔ ◑` |
-| Every window | `C ▲ 63/86/4 · X 0/1` |
+| Every window | `C ▲ 65/86/4 · X 0/1` |
 
 Severity is **never signalled by colour alone** — `●` normal, `▲` warning, `■`
 critical — so it survives red-green colour deficiency and a busy wallpaper

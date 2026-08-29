@@ -6,7 +6,6 @@ struct SettingsView: View {
     let model: UsageViewModel
     let preferences: Preferences
 
-    @Environment(\.dismiss) private var dismiss
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var shimError: String?
 
@@ -25,11 +24,6 @@ struct SettingsView: View {
                 .onChange(of: launchAtLogin) { _, enabled in
                     try? enabled ? SMAppService.mainApp.register() : SMAppService.mainApp.unregister()
                 }
-
-            HStack {
-                Spacer()
-                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
-            }
         }
         .padding(20)
         .frame(width: 380)
