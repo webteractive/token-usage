@@ -1,0 +1,21 @@
+{
+  "rateLimits": {
+    "limitId": "codex", "limitName": null,
+    "primary": { "usedPercent": 6, "windowDurationMins": 300, "resetsAt": 1787996507 },
+    "secondary": { "usedPercent": 1, "windowDurationMins": 10080, "resetsAt": 1788583307 },
+    "planType": "plus"
+  },
+  "rateLimitsByLimitId": {
+    "base_model_inference": {
+      "limitId": "base_model_inference", "limitName": "gpt-reserve",
+      "primary": { "usedPercent": 0, "windowDurationMins": 10080, "resetsAt": 1788583592 },
+      "secondary": null, "planType": "plus"
+    },
+    "codex": {
+      "limitId": "codex", "limitName": null,
+      "primary": { "usedPercent": 6, "windowDurationMins": 300, "resetsAt": 1787996507 },
+      "secondary": { "usedPercent": 1, "windowDurationMins": 10080, "resetsAt": 1788583307 },
+      "planType": "plus"
+    }
+  }
+}

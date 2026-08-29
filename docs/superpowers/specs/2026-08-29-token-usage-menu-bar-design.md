@@ -320,3 +320,59 @@ rather than racing Claude Code to refresh it.
 **Privacy claim narrowed.** The original spec claimed no network and no
 credentials. That now holds only with the API source disabled; the README states
 the actual position.
+
+---
+
+# Revision 2 — 2026-08-29: Codex moves to the app-server
+
+## Same gap, same fix
+
+Codex's rollout files carry one bucket. The app-server's
+`account/rateLimits/read` returns `rateLimitsByLimitId`, which on this machine
+also contains `base_model_inference` ("gpt-reserve") — a scoped weekly limit
+invisible to the files, exactly analogous to Claude's Fable window. The
+generalised `[QuotaWindow]` model absorbed it without change.
+
+## Why not the HTTP endpoint
+
+`https://chatgpt.com/api/codex/usage` exists and is what the CLI calls, but it
+is unreachable from a plain client:
+
+```
+HTTP/2 403
+cf-mitigated: challenge
+server: cloudflare
+```
+
+A valid token makes no difference — this is Cloudflare bot management, not
+authorisation. Passing it would require impersonating a browser's TLS
+fingerprint: circumvention, and brittle against any change on their side.
+`api.anthropic.com` has no such gate, which is why the two providers use
+different transports.
+
+Speaking JSON-RPC to `codex app-server` over stdio avoids the problem entirely
+and means the app never handles Codex credentials.
+
+Two details cost a debugging cycle each and are worth recording:
+- **stdin must stay open until the response arrives.** The server treats EOF as
+  "client is done" and exits, returning nothing.
+- **Responses are interleaved with unsolicited notifications**, so the reader
+  must match on the request id rather than taking the first line of output.
+- The binary must be located by absolute path: a GUI app does not inherit the
+  shell `PATH`.
+
+## Polling discipline
+
+Both live sources are throttled to at most once per provider per minute, and the
+tick moved from 30s to 60s. The Claude usage endpoint rate-limits its own callers
+— observed `429` while probing — and each Codex read spawns a process, while
+FSEvents fires repeatedly during active work. On transient failure the previous
+reading is retained rather than blanked; its staleness marking already states
+its age honestly.
+
+## Source labelling
+
+`ClaudeSource` generalised to a shared `SourceStatus` (`.live`, `.degraded`,
+`.unavailable`) used by both providers, since both now have a live source and a
+degraded fallback. The dropdown shows it per provider, so a partial view is
+never mistaken for the whole picture.

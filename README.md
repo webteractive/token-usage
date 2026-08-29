@@ -68,12 +68,33 @@ it and hands stdin to your real statusline unchanged.
 `~/.claude/settings.json` is backed up before any change, and **Remove helper**
 restores the original command verbatim.
 
-**Codex — the rollout files.** Codex persists `rate_limits` on `token_count`
-events, so the newest rollout is tail-read directly. No credentials, no network.
+**Codex — the app-server.** The app speaks JSON-RPC to `codex app-server` over
+stdio (`account/rateLimits/read`). Like Claude's API source it is live, and it
+carries `rateLimitsByLimitId` — scoped buckets such as `base_model_inference`
+("gpt-reserve") that a session file never contains.
+
+Calling `https://chatgpt.com/api/codex/usage` directly the way the Claude source
+does **does not work**: that host sits behind Cloudflare bot management and
+answers a plain client with `403 cf-mitigated: challenge` no matter how valid
+the token. Getting past it would mean impersonating a browser's TLS fingerprint
+— circumvention, and brittle. Letting Codex's own binary make the call sidesteps
+it, and means this app never handles Codex credentials at all.
+
+**Codex — the rollout fallback.** If the app-server is unavailable, the newest
+rollout file is tail-read instead. Partial: one bucket only, and only as fresh
+as the last session.
+
+## Polling
+
+Live sources are throttled to at most once a minute per provider. The Claude
+usage endpoint rate-limits its own callers (it answers `429` under load) and each
+Codex read spawns a process, while FSEvents can fire repeatedly during active
+work. On a transient failure the previous reading is kept rather than blanked —
+its staleness marking already tells the truth about its age.
 
 ## Staleness
 
-The API source is always live. The statusline fallback and Codex only report
+The live sources are current as of the last poll. The fallbacks only report
 while a session is running, so those readings can have age on them. `resets_at`
 makes most of that self-healing:
 
