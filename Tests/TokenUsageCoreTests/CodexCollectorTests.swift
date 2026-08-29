@@ -40,14 +40,14 @@ final class CodexCollectorTests: XCTestCase {
 
         let collector = CodexCollector(paths: paths)
         // Quota is account-wide, so recency decides, not the name's timestamp.
-        XCTAssertEqual(collector.collect()?.fiveHour?.usedPercent, 42)
+        XCTAssertEqual(collector.collect()?.window(.session)?.window.usedPercent, 42)
     }
 
     func testCollectReadsBothWindows() throws {
         try writeRollout("rollout-a.jsonl", percent: 3, modified: Date())
         let usage = try XCTUnwrap(CodexCollector(paths: paths).collect())
-        XCTAssertEqual(usage.fiveHour?.usedPercent, 3)
-        XCTAssertEqual(usage.sevenDay?.usedPercent, 1)
+        XCTAssertEqual(usage.window(.session)?.window.usedPercent, 3)
+        XCTAssertEqual(usage.window(.weeklyAll)?.window.usedPercent, 1)
     }
 
     func testNoSessionsDirectoryReturnsNil() {
@@ -67,7 +67,7 @@ final class CodexCollectorTests: XCTestCase {
         )
         try writeRollout("rollout-a.jsonl", percent: 7, modified: Date(timeIntervalSince1970: 1000))
 
-        XCTAssertEqual(CodexCollector(paths: paths).collect()?.fiveHour?.usedPercent, 7)
+        XCTAssertEqual(CodexCollector(paths: paths).collect()?.window(.session)?.window.usedPercent, 7)
     }
 
     /// A small tail can land past the last reading; the collector must widen
@@ -80,6 +80,6 @@ final class CodexCollectorTests: XCTestCase {
 
         // A tail this small starts after the reading.
         let collector = CodexCollector(paths: paths, tailBytes: 256)
-        XCTAssertEqual(collector.collect()?.fiveHour?.usedPercent, 55)
+        XCTAssertEqual(collector.collect()?.window(.session)?.window.usedPercent, 55)
     }
 }

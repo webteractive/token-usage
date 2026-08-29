@@ -53,23 +53,28 @@ public enum CodexRolloutParser {
                 .flatMap(ISO8601DateFormatter.codexParser.date(from:))
                 ?? Date()
 
-            return ProviderUsage(
-                fiveHour: window(limits.primary, observedAt: observedAt),
-                sevenDay: window(limits.secondary, observedAt: observedAt)
-            )
+            return ProviderUsage(windows: [
+                window(limits.primary, kind: .session, observedAt: observedAt),
+                window(limits.secondary, kind: .weeklyAll, observedAt: observedAt),
+            ].compactMap { $0 })
         }
         return nil
     }
 
     private static func window(
         _ raw: Line.Payload.RateLimits.Window?,
+        kind: WindowKind,
         observedAt: Date
-    ) -> UsageWindow? {
+    ) -> QuotaWindow? {
         guard let raw else { return nil }
-        return UsageWindow(
-            usedPercent: raw.used_percent,
-            resetsAt: Date(timeIntervalSince1970: raw.resets_at),
-            observedAt: observedAt
+        return QuotaWindow(
+            kind: kind,
+            window: UsageWindow(
+                usedPercent: raw.used_percent,
+                resetsAt: Date(timeIntervalSince1970: raw.resets_at),
+                observedAt: observedAt
+            ),
+            isActive: false
         )
     }
 }

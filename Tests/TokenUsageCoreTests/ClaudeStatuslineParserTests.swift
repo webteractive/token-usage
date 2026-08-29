@@ -15,28 +15,28 @@ final class ClaudeStatuslineParserTests: XCTestCase {
     func testParsesBothWindows() throws {
         let usage = try ClaudeStatuslineParser.parse(fixture("claude-statusline"), observedAt: observedAt)
 
-        XCTAssertEqual(usage.fiveHour?.usedPercent, 47)
-        XCTAssertEqual(usage.fiveHour?.resetsAt, Date(timeIntervalSince1970: 1_787_845_497))
-        XCTAssertEqual(usage.fiveHour?.observedAt, observedAt)
+        XCTAssertEqual(usage.window(.session)?.window.usedPercent, 47)
+        XCTAssertEqual(usage.window(.session)?.window.resetsAt, Date(timeIntervalSince1970: 1_787_845_497))
+        XCTAssertEqual(usage.window(.session)?.window.observedAt, observedAt)
 
-        XCTAssertEqual(usage.sevenDay?.usedPercent, 31)
-        XCTAssertEqual(usage.sevenDay?.resetsAt, Date(timeIntervalSince1970: 1_788_333_028))
+        XCTAssertEqual(usage.window(.weeklyAll)?.window.usedPercent, 31)
+        XCTAssertEqual(usage.window(.weeklyAll)?.window.resetsAt, Date(timeIntervalSince1970: 1_788_333_028))
     }
 
     /// rate_limits is documented as subscriber-only. Its absence is a normal
     /// state, not a parse error — and must not become a zero.
     func testAbsentRateLimitsYieldsEmptyNotZero() throws {
         let usage = try ClaudeStatuslineParser.parse(fixture("claude-no-rate-limits"), observedAt: observedAt)
-        XCTAssertNil(usage.fiveHour)
-        XCTAssertNil(usage.sevenDay)
+        XCTAssertNil(usage.window(.session))
+        XCTAssertNil(usage.window(.weeklyAll))
         XCTAssertEqual(usage.dominant(now: observedAt), .unknown)
     }
 
     func testPartialRateLimitsKeepsPresentWindow() throws {
         let json = #"{"rate_limits":{"five_hour":{"used_percentage":12,"resets_at":1787845497}}}"#
         let usage = try ClaudeStatuslineParser.parse(Data(json.utf8), observedAt: observedAt)
-        XCTAssertEqual(usage.fiveHour?.usedPercent, 12)
-        XCTAssertNil(usage.sevenDay)
+        XCTAssertEqual(usage.window(.session)?.window.usedPercent, 12)
+        XCTAssertNil(usage.window(.weeklyAll))
     }
 
     func testMalformedJSONThrows() {
