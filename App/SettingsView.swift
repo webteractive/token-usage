@@ -5,6 +5,7 @@ import TokenUsageCore
 struct SettingsView: View {
     let model: UsageViewModel
     let preferences: Preferences
+    let updates: UpdateController
 
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var shimError: String?
@@ -17,11 +18,12 @@ struct SettingsView: View {
             Divider()
             claudeReporting
             Divider()
-
             Toggle("Launch at login", isOn: $launchAtLogin)
                 .onChange(of: launchAtLogin) { _, enabled in
                     try? enabled ? SMAppService.mainApp.register() : SMAppService.mainApp.unregister()
                 }
+            Divider()
+            updating
         }
         .padding(20)
         .frame(width: 380)
@@ -110,6 +112,35 @@ struct SettingsView: View {
             shimError = nil
         } catch {
             shimError = error.localizedDescription
+        }
+    }
+
+    private var updating: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Updates").font(.headline)
+            Toggle("Automatically check for updates", isOn: Binding(
+                get: { preferences.automaticallyChecksForUpdates },
+                set: {
+                    preferences.automaticallyChecksForUpdates = $0
+                    updates.automaticCheckPreferenceChanged()
+                }
+            ))
+            HStack {
+                Text("Version \(updates.currentVersion)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button(updates.isChecking ? "Checking…" : "Check Now") {
+                    updates.checkForUpdates()
+                }
+                .disabled(updates.isChecking || updates.isInstalling)
+            }
+            if let update = updates.availableUpdate {
+                Button("Install Token Usage \(update.version)…") {
+                    updates.presentAvailableUpdate()
+                }
+                .disabled(updates.isInstalling)
+            }
         }
     }
 }

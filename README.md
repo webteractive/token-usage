@@ -130,10 +130,40 @@ swift test          # core library
 The core (state machine, parsers, renderer, installer) is a plain SPM library
 with no SwiftUI dependency, so it is testable with `swift test` alone.
 
-## Distribution
+## Download and updates
 
-Reading `~/.claude` and `~/.codex` is incompatible with the App Store sandbox.
-Ships unsandboxed, hardened runtime, notarized, via appdater.
+Reading `~/.claude` and `~/.codex` is incompatible with the App Store sandbox,
+so Token Usage ships outside the App Store through
+[GitHub Releases](https://github.com/webteractive/token-usage/releases).
+
+Download `TokenUsage-<version>.dmg`, open it, and drag **TokenUsage** into
+Applications. Current builds are ad-hoc signed rather than Developer ID signed,
+so a fresh download may need its quarantine attribute removed once:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/TokenUsage.app
+```
+
+Token Usage checks GitHub for a newer release on launch and every six hours.
+Automatic checks can be disabled in Settings; **Check Now** remains available.
+When an update exists, the app downloads its DMG and `.sha256` sidecar, verifies
+the checksum, stages and validates the bundle, then swaps it into place and
+restarts. The previous bundle is kept until the replacement is verified and is
+restored automatically if the copy fails.
+
+## Releasing
+
+```bash
+scripts/package.sh
+scripts/release.sh --notes notes.md patch --dry-run
+scripts/release.sh --notes notes.md patch
+```
+
+`scripts/release.sh` is the release entry point. It requires human-written
+notes and a clean `main`, runs the test suite, bumps the version in
+`Project.swift`, packages `TokenUsage-<version>.dmg` and its checksum sidecar,
+tags the release, and uploads both assets. The sidecar is required by the in-app
+updater, so releases should not be assembled manually.
 
 ## Privacy
 

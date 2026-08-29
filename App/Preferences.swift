@@ -14,6 +14,9 @@ final class Preferences {
     var criticalThreshold: Double {
         didSet { store(criticalThreshold, "criticalThreshold") }
     }
+    var automaticallyChecksForUpdates: Bool {
+        didSet { store(automaticallyChecksForUpdates, "automaticallyChecksForUpdates") }
+    }
 
     var thresholds: Thresholds {
         Thresholds(warning: warningThreshold, critical: criticalThreshold)
@@ -27,6 +30,9 @@ final class Preferences {
         let critical = defaults.object(forKey: "criticalThreshold") as? Double
         self.warningThreshold = warning ?? Thresholds.default.warning
         self.criticalThreshold = critical ?? Thresholds.default.critical
+        self.automaticallyChecksForUpdates = defaults.object(
+            forKey: "automaticallyChecksForUpdates"
+        ) as? Bool ?? true
     }
 
     private let defaults: UserDefaults

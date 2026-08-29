@@ -4,6 +4,7 @@ import TokenUsageCore
 struct DropdownView: View {
     let model: UsageViewModel
     let preferences: Preferences
+    let updates: UpdateController
 
     @State private var installError: String?
 
@@ -18,11 +19,25 @@ struct DropdownView: View {
                 shimPrompt
             }
 
+            if let update = updates.availableUpdate {
+                Divider()
+                Button {
+                    updates.presentAvailableUpdate()
+                } label: {
+                    Label("Update to \(update.version)", systemImage: "arrow.down.circle")
+                }
+                .disabled(updates.isInstalling)
+            }
+
             Divider()
 
             HStack {
                 Button {
-                    SettingsWindowController.shared.show(model: model, preferences: preferences)
+                    SettingsWindowController.shared.show(
+                        model: model,
+                        preferences: preferences,
+                        updates: updates
+                    )
                 } label: {
                     Image(systemName: "gearshape")
                         .imageScale(.large)

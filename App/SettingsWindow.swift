@@ -18,14 +18,14 @@ final class SettingsWindowController {
 
     private var window: NSWindow?
 
-    func show(model: UsageViewModel, preferences: Preferences) {
+    func show(model: UsageViewModel, preferences: Preferences, updates: UpdateController) {
         let window = window ?? makeWindow()
         self.window = window
 
         // Rebuilt each time so the view reflects current usage and preferences
         // rather than a snapshot from whenever the window was first opened.
         window.contentViewController = NSHostingController(
-            rootView: SettingsView(model: model, preferences: preferences)
+            rootView: SettingsView(model: model, preferences: preferences, updates: updates)
         )
         window.setContentSize(window.contentViewController?.view.fittingSize ?? .init(width: 380, height: 520))
         window.center()
