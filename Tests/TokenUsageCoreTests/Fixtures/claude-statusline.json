@@ -1,0 +1,14 @@
+{
+  "model": { "display_name": "Opus 5" },
+  "workspace": { "current_dir": "/Users/glen/AI/token-usage" },
+  "version": "2.1.251",
+  "context_window": {
+    "total_input_tokens": 54816,
+    "context_window_size": 200000,
+    "used_percentage": 27.4
+  },
+  "rate_limits": {
+    "five_hour": { "used_percentage": 47.0, "resets_at": 1787845497 },
+    "seven_day": { "used_percentage": 31.0, "resets_at": 1788333028 }
+  }
+}
