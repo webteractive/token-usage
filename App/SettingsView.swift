@@ -11,8 +11,6 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Token Usage").font(.title3).bold()
-
             display
             Divider()
             thresholds

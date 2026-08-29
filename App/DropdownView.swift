@@ -21,7 +21,9 @@ struct DropdownView: View {
             Divider()
 
             HStack {
-                SettingsLink {
+                Button {
+                    SettingsWindowController.shared.show(model: model, preferences: preferences)
+                } label: {
                     Image(systemName: "gearshape")
                         .imageScale(.large)
                 }
