@@ -27,21 +27,30 @@ public enum ClaudeStatuslineParser {
             // and must surface as "no data" rather than zero usage.
             return .empty
         }
-        return ProviderUsage(
-            fiveHour: window(limits.five_hour, observedAt: observedAt),
-            sevenDay: window(limits.seven_day, observedAt: observedAt)
-        )
+
+        // The statusline payload carries only these two windows. Scoped weekly
+        // limits exist but are not exposed here — that is precisely why this is
+        // the fallback source and the usage API is preferred.
+        return ProviderUsage(windows: [
+            window(limits.five_hour, kind: .session, observedAt: observedAt),
+            window(limits.seven_day, kind: .weeklyAll, observedAt: observedAt),
+        ].compactMap { $0 })
     }
 
     private static func window(
         _ raw: Payload.RateLimits.Window?,
+        kind: WindowKind,
         observedAt: Date
-    ) -> UsageWindow? {
+    ) -> QuotaWindow? {
         guard let raw else { return nil }
-        return UsageWindow(
-            usedPercent: raw.used_percentage,
-            resetsAt: Date(timeIntervalSince1970: raw.resets_at),
-            observedAt: observedAt
+        return QuotaWindow(
+            kind: kind,
+            window: UsageWindow(
+                usedPercent: raw.used_percentage,
+                resetsAt: Date(timeIntervalSince1970: raw.resets_at),
+                observedAt: observedAt
+            ),
+            isActive: false
         )
     }
 }

@@ -8,11 +8,23 @@ final class UsageViewModel {
 
     private(set) var usage: [Provider: ProviderUsage] = [:]
     private(set) var shimStatus: ShimStatus = .notInstalled(existingCommand: nil)
+    /// How the Claude figures were obtained, so the UI can be honest about it.
+    private(set) var claudeSource: ClaudeSource = .none
+
+    enum ClaudeSource: Equatable {
+        case api
+        case statusline
+        case none
+        /// The API refused the token; Claude Code refreshes it during normal use.
+        case needsReauth
+        case failed(String)
+    }
 
     let paths: Paths
     private let store: StateStore
     private let codex: CodexCollector
     private let installer: ShimInstaller
+    private let api: ClaudeUsageAPI
     private let preferences: Preferences
 
     private var watcher: FileWatcher?
@@ -24,6 +36,7 @@ final class UsageViewModel {
         self.store = StateStore(paths: paths)
         self.codex = CodexCollector(paths: paths)
         self.installer = ShimInstaller(paths: paths)
+        self.api = ClaudeUsageAPI()
     }
 
     var labelSpec: LabelSpec {
@@ -59,9 +72,37 @@ final class UsageViewModel {
     }
 
     func refresh() {
-        usage[.claude] = readClaude() ?? .empty
         usage[.codex] = codex.collect() ?? .empty
         shimStatus = installer.status()
+        Task { await refreshClaude() }
+    }
+
+    /// The API is preferred because it is complete — it carries scoped weekly
+    /// limits the statusline never sends — and because it is live rather than
+    /// only arriving while a session happens to be running. The statusline
+    /// capture stays as a fallback for when the undocumented endpoint changes.
+    private func refreshClaude() async {
+        do {
+            usage[.claude] = try await api.fetch()
+            claudeSource = .api
+            return
+        } catch {
+            if case ClaudeUsageAPIError.unauthorized = error {
+                claudeSource = .needsReauth
+            } else if case CredentialError.expired = error {
+                claudeSource = .needsReauth
+            } else {
+                claudeSource = .failed(String(describing: error))
+            }
+        }
+
+        if let fallback = readClaude() {
+            usage[.claude] = fallback
+            claudeSource = .statusline
+        } else {
+            usage[.claude] = .empty
+            if claudeSource == .failed("") { claudeSource = .none }
+        }
     }
 
     func installShim() throws { try installer.install(); refresh() }

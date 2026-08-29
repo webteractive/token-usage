@@ -250,3 +250,73 @@ The pure core carries the interesting logic, so most tests need no mocking.
 - `MenuBarLabelRenderer` across 4 modes × 3 severities × stale/live.
 - `ShimInstaller` against a temp `HOME`: install → assert stdout byte-identical
   to the unwrapped statusline → uninstall → assert `settings.json` restored.
+
+---
+
+# Revision — 2026-08-29: the usage API supersedes the statusline
+
+## What was wrong
+
+The design above modelled Claude's quota as a **fixed pair** of windows,
+`five_hour` and `seven_day`, because that is all the statusline payload carries.
+
+Running `/usage` showed a third: **Current week (Fable), 4%** — a per-model
+weekly cap the app could not see. Under-reporting a window is the exact failure
+this app exists to prevent: if a scoped weekly limit passed the all-models one,
+the app would have shown a comfortable number while the user was blocked.
+
+The per-model fields (`seven_day_opus`, `seven_day_sonnet`) exist in the Claude
+Code binary but are **not** exposed to the statusline. Verified against the
+documented statusline schema, which lists only `five_hour`, `seven_day`, and
+`spend_limit`.
+
+## The better source
+
+`GET https://api.anthropic.com/api/oauth/usage`, authenticated with the OAuth
+access token Claude Code stores in the login Keychain
+(`Claude Code-credentials` → `claudeAiOauth.accessToken`). Probed live and
+confirmed: HTTP 200, returning the same data `/usage` renders.
+
+The valuable part is a normalised, display-ready `limits` **array**:
+
+```json
+{"kind":"session",       "percent":62, "severity":"normal",  "resets_at":ISO8601, "scope":null}
+{"kind":"weekly_all",    "percent":86, "severity":"warning", "resets_at":ISO8601, "scope":null, "is_active":true}
+{"kind":"weekly_scoped", "percent":4,  "severity":"normal",  "resets_at":ISO8601,
+ "scope":{"model":{"display_name":"Fable"}}}
+```
+
+Self-describing (the model name comes from the server), ordered by `kind`, and
+carrying `is_active` to mark the binding limit.
+
+Note the format differs from the statusline: `resets_at` is ISO8601 with
+fractional seconds and an offset, not epoch seconds.
+
+## Consequences
+
+**The model generalises.** `ProviderUsage` becomes a list of `QuotaWindow`, each
+with a `WindowKind` (`.session`, `.weeklyAll`, `.weeklyScoped(model:)`,
+`.other(String)`). Unknown kinds are **preserved, not dropped** — the endpoint's
+list is open-ended, and discarding an unrecognised limit reintroduces the
+original bug. Codex's `primary`/`secondary` map onto `.session`/`.weeklyAll`.
+
+**The API is more capable *and* less invasive.** It removes the need for the
+shim — the riskiest component, the only one that modifies user configuration and
+could break the user's terminal. It also eliminates staleness for Claude
+entirely, since the data is fetched live rather than arriving only while a
+session runs.
+
+**The shim is demoted, not deleted.** The endpoint is undocumented and could
+change with any Claude Code release. The shim (already built and tested) remains
+as a fallback that degrades to two windows rather than dying, and is uninstalled
+by default. The UI labels the active source, marking the fallback
+`statusline · partial` so a partial view is never mistaken for a complete one.
+
+**Credentials.** The token is read fresh from the Keychain per request, never
+cached to disk and never written back — Claude Code owns that item and refreshes
+it during normal use. On 401 the app reports "sign-in expired — run `claude`"
+rather than racing Claude Code to refresh it.
+
+**Privacy claim narrowed.** The original spec claimed no network and no
+credentials. That now holds only with the API source disabled; the README states
+the actual position.

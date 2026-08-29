@@ -29,7 +29,7 @@ struct DropdownView: View {
             .buttonStyle(.plain)
         }
         .padding(12)
-        .frame(width: 260)
+        .frame(width: 300)
         .sheet(isPresented: $showingSettings) {
             SettingsView(model: model, preferences: preferences)
         }
@@ -39,22 +39,52 @@ struct DropdownView: View {
     private func providerSection(_ provider: Provider) -> some View {
         let usage = model.usage[provider] ?? .empty
         VStack(alignment: .leading, spacing: 3) {
-            Text(provider.displayName).font(.headline)
-            row("5h", usage.fiveHour)
-            row("7d", usage.sevenDay)
+            HStack(spacing: 6) {
+                Text(provider.displayName).font(.headline)
+                if provider == .claude { sourceBadge }
+            }
+            if usage.windows.isEmpty {
+                Text("no data").font(.caption).foregroundStyle(.secondary)
+            } else {
+                // Every window the provider reports, however many that is —
+                // dropping one is how you fail to warn about the limit that is
+                // about to block you.
+                ForEach(usage.windows, id: \.kind) { quota in
+                    row(quota)
+                }
+            }
+        }
+    }
+
+    /// Says plainly where Claude's numbers came from, because the two sources
+    /// differ in completeness.
+    @ViewBuilder
+    private var sourceBadge: some View {
+        switch model.claudeSource {
+        case .api:
+            Text("live").font(.caption2).foregroundStyle(.secondary)
+        case .statusline:
+            Text("statusline · partial").font(.caption2).foregroundStyle(.orange)
+        case .needsReauth:
+            Text("sign-in expired \u{2014} run claude").font(.caption2).foregroundStyle(.orange)
+        case .failed:
+            Text("unavailable").font(.caption2).foregroundStyle(.orange)
+        case .none:
+            EmptyView()
         }
     }
 
     @ViewBuilder
-    private func row(_ label: String, _ window: UsageWindow?) -> some View {
+    private func row(_ quota: QuotaWindow) -> some View {
         let now = Date.now
-        let state = window?.state(now: now) ?? .unknown
+        let window = quota.window
+        let state = window.state(now: now)
         let severity = Severity.of(state.percent ?? 0, preferences.thresholds)
 
         HStack(spacing: 6) {
-            Text(label)
-                .frame(width: 22, alignment: .leading)
-                .foregroundStyle(.secondary)
+            Text(quota.label)
+                .frame(width: 62, alignment: .leading)
+                .foregroundStyle(quota.isActive ? .primary : .secondary)
             Text(state.percentLabel)
                 .frame(width: 44, alignment: .trailing)
                 .foregroundStyle(state.hasData ? severity.color : .secondary)

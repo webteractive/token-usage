@@ -20,48 +20,62 @@ Codex
 
 ## Nothing here is estimated
 
-Both providers publish exact figures, and the app displays only those.
-
-| | 5-hour | 7-day | Reset |
-|---|---|---|---|
-| Claude | `rate_limits.five_hour.used_percentage` | `.seven_day.used_percentage` | `resets_at` |
-| Codex | `rate_limits.primary.used_percent` | `.secondary.used_percent` | `resets_at` |
-
-A provider that has never reported shows `—`, never `0%`. "No data" and "no
+Both providers publish exact figures, and the app displays only those. A
+provider that has never reported shows `—`, never `0%`. "No data" and "no
 usage" are different claims, and the app never conflates them.
 
-## The Claude helper
+## Where the numbers come from
 
-Codex writes its quota to its session files, so it is read directly. Claude
-Code does **not** — searching `~/.claude/projects` for it finds nothing. It
-passes `rate_limits` to whatever command is configured as its **statusline**,
-and nowhere else.
+**Claude — the OAuth usage API.** The app reads Claude Code's access token from
+the login Keychain (`Claude Code-credentials`) and calls
+`https://api.anthropic.com/api/oauth/usage`. That returns the same `limits`
+list `/usage` renders:
 
-So the app installs a small shim as your `statusLine.command`. The shim
-captures the payload and hands stdin to your real statusline unchanged.
+```json
+{"kind":"session",       "percent":63, "scope":null}
+{"kind":"weekly_all",    "percent":86, "scope":null,                        "is_active":true}
+{"kind":"weekly_scoped", "percent":4,  "scope":{"model":{"display_name":"Fable"}}}
+```
 
-- **It cannot break your statusline.** The passthrough is the final statement
-  on every path, so a failed capture costs you a usage update, never your
-  status bar.
-- **It chains, it does not replace.** Whatever you had configured keeps running.
-- **It has no dependencies** — plain bash, no `jq`. All parsing happens in Swift.
-- **It is a standalone script in `~/.claude/`, deliberately not a binary inside
-  the app bundle** — a bundle path would break your status bar if the app were
-  ever moved or deleted.
+It is a **list**, so per-model weekly caps and any window Anthropic adds later
+appear automatically. Unknown kinds are preserved rather than dropped —
+silently discarding a limit is how you fail to warn someone about the one
+that is about to block them.
 
-`~/.claude/settings.json` is backed up before any change. **Settings → Remove
-helper** restores the original `statusLine.command` verbatim.
+Token handling: read fresh from the Keychain per request, never cached to disk,
+never written back. The token is short-lived and Claude Code refreshes it during
+normal use, so on a 401 the app reports **"sign-in expired — run `claude`"**
+rather than racing Claude Code to refresh the same Keychain item.
 
-If you rewire `statusLine.command` yourself afterwards, the app notices and
-offers to re-chain rather than clobbering your change.
+The endpoint is undocumented. If it changes shape or disappears, the app says
+so and falls back — it never shows a number it cannot justify.
 
-`rate_limits` is subscriber-only. On an API or Console account Claude
-legitimately has no quota, and the app says so instead of showing zero.
+**Claude — the statusline fallback.** Optional and off by default. A shim
+installed as your `statusLine.command` captures the payload Claude Code passes
+it and hands stdin to your real statusline unchanged.
+
+- **It cannot break your statusline.** The passthrough is the final statement on
+  every path, so a failed capture costs a usage update, never your status bar.
+- **It chains, it does not replace**, has no dependencies (plain bash, no `jq`),
+  and lives in `~/.claude/` rather than the app bundle so it cannot be orphaned.
+- The delegated command is stored in a sidecar file as **data**, never
+  interpolated into the script — a command containing quotes or `$(...)` would
+  otherwise corrupt it, and Claude Code's own documented example contains both.
+- **It is partial**: the statusline payload carries only `five_hour` and
+  `seven_day`. Scoped weekly limits are invisible to it, so the app labels this
+  source `statusline · partial` when it is in use.
+
+`~/.claude/settings.json` is backed up before any change, and **Remove helper**
+restores the original command verbatim.
+
+**Codex — the rollout files.** Codex persists `rate_limits` on `token_count`
+events, so the newest rollout is tail-read directly. No credentials, no network.
 
 ## Staleness
 
-Both sources only report while a session is running, so a reading can have age
-on it. `resets_at` makes most of that self-healing:
+The API source is always live. The statusline fallback and Codex only report
+while a session is running, so those readings can have age on them. `resets_at`
+makes most of that self-healing:
 
 | Condition | Shown |
 |---|---|
@@ -75,10 +89,10 @@ Switchable in Settings, with a live preview:
 
 | Mode | Menu bar |
 |---|---|
-| Worst of all windows | `● 47%` |
-| One per tool (default) | `C 47% · X 3%` |
+| Worst of all windows | `● 86%` |
+| One per tool (default) | `C ▲ 86% · X 1%` |
 | Rings | `◔ ◑` |
-| All four | `C 47/31 · X 3/1` |
+| Every window | `C ▲ 63/86/4 · X 0/1` |
 
 Severity is **never signalled by colour alone** — `●` normal, `▲` warning, `■`
 critical — so it survives red-green colour deficiency and a busy wallpaper
@@ -103,5 +117,8 @@ Ships unsandboxed, hardened runtime, notarized, via appdater.
 
 ## Privacy
 
-No network access, no credentials, no API calls. Everything is read from local
-files and stays on the machine.
+The only network call is to Anthropic's own usage endpoint, authenticated with
+the token Claude Code already stores on this machine. Nothing is sent anywhere
+else, nothing is cached to disk, and the token is never written back. Codex data
+never leaves the filesystem. Running with the API source disabled makes the app
+fully offline and credential-free.

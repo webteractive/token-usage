@@ -14,10 +14,10 @@ final class CodexRolloutParserTests: XCTestCase {
         let usage = try XCTUnwrap(CodexRolloutParser.parseLatest(chunk: fixture("codex-tail", "jsonl")))
 
         // 3.0 is from the final line; 2.0 from the earlier one must not win.
-        XCTAssertEqual(usage.fiveHour?.usedPercent, 3)
-        XCTAssertEqual(usage.fiveHour?.resetsAt, Date(timeIntervalSince1970: 1_787_845_497))
-        XCTAssertEqual(usage.sevenDay?.usedPercent, 1)
-        XCTAssertEqual(usage.sevenDay?.resetsAt, Date(timeIntervalSince1970: 1_788_333_028))
+        XCTAssertEqual(usage.window(.session)?.window.usedPercent, 3)
+        XCTAssertEqual(usage.window(.session)?.window.resetsAt, Date(timeIntervalSince1970: 1_787_845_497))
+        XCTAssertEqual(usage.window(.weeklyAll)?.window.usedPercent, 1)
+        XCTAssertEqual(usage.window(.weeklyAll)?.window.resetsAt, Date(timeIntervalSince1970: 1_788_333_028))
     }
 
     /// observedAt comes from the line's own timestamp, which is more accurate
@@ -25,7 +25,7 @@ final class CodexRolloutParserTests: XCTestCase {
     func testObservedAtComesFromLineTimestamp() throws {
         let usage = try XCTUnwrap(CodexRolloutParser.parseLatest(chunk: fixture("codex-tail", "jsonl")))
         let expected = ISO8601DateFormatter.codexParser.date(from: "2026-08-27T10:51:47.735Z")
-        XCTAssertEqual(usage.fiveHour?.observedAt, expected)
+        XCTAssertEqual(usage.window(.session)?.window.observedAt, expected)
     }
 
     func testChunkWithoutRateLimitsReturnsNil() {

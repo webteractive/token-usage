@@ -67,15 +67,15 @@ public enum MenuBarLabelRenderer {
     ) -> LabelSpec {
         .segments(order.map { provider in
             let provided = usage[provider] ?? .empty
-            let five = provided.fiveHour?.state(now: now) ?? .unknown
-            let seven = provided.sevenDay?.state(now: now) ?? .unknown
+            let parts = provided.windows
+                .map { $0.window.state(now: now).numberLabel }
+                .joined(separator: "/")
             let dominant = provided.dominant(now: now)
             let severity = Severity.of(dominant.percent ?? 0, thresholds)
 
             let body: String
             if dominant.hasData {
-                body = "\(marker(severity))\(stalePrefix(dominant))"
-                    + "\(five.numberLabel)/\(seven.numberLabel)"
+                body = "\(marker(severity))\(stalePrefix(dominant))\(parts)"
             } else {
                 body = "—"
             }
