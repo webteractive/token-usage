@@ -8,6 +8,9 @@
 # Every failure path still delegates: losing a usage update is acceptable,
 # losing the user's statusline is not.
 #
+# The delegated command is read from a sidecar file rather than baked into this
+# script, so a command containing quotes or $(...) cannot corrupt this file.
+#
 # Uninstall by restoring statusLine.command in ~/.claude/settings.json.
 
 input="$(cat)"
@@ -19,7 +22,11 @@ printf '%s' "$input" > "$tmp" 2>/dev/null && chmod 600 "$tmp" 2>/dev/null \
   && mv -f "$tmp" "$state" 2>/dev/null
 rm -f "$tmp" 2>/dev/null
 
-delegate="__DELEGATE__"
+delegate=""
+if [ -f "__DELEGATE_FILE__" ]; then
+  delegate="$(cat "__DELEGATE_FILE__" 2>/dev/null)"
+fi
+
 if [ -n "$delegate" ]; then
   printf '%s' "$input" | exec /bin/sh -c "$delegate"
 fi

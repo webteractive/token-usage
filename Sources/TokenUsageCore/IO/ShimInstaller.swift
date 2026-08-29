@@ -68,6 +68,7 @@ public struct ShimInstaller: Sendable {
         let delegate = installedDelegate()
         try setCommand(delegate)
         try? FileManager.default.removeItem(at: paths.shimScript)
+        try? FileManager.default.removeItem(at: paths.shimDelegateFile)
     }
 
     /// A delegate pointing at the shim itself would make it invoke itself
@@ -86,7 +87,7 @@ public struct ShimInstaller: Sendable {
 
         let script = template
             .replacingOccurrences(of: "__STATE_FILE__", with: paths.claudeRawState.path)
-            .replacingOccurrences(of: "__DELEGATE__", with: delegate ?? "")
+            .replacingOccurrences(of: "__DELEGATE_FILE__", with: paths.shimDelegateFile.path)
 
         try FileManager.default.createDirectory(
             at: paths.claudeDirectory, withIntermediateDirectories: true
@@ -95,19 +96,22 @@ public struct ShimInstaller: Sendable {
         try FileManager.default.setAttributes(
             [.posixPermissions: 0o755], ofItemAtPath: paths.shimScript.path
         )
+
+        // Written as data, never interpolated into the script.
+        if let delegate, !delegate.isEmpty {
+            try Data(delegate.utf8).write(to: paths.shimDelegateFile)
+        } else {
+            try? FileManager.default.removeItem(at: paths.shimDelegateFile)
+        }
     }
 
-    /// Recovers the delegate by reading it back out of the installed script,
-    /// so the app holds no separate state that could drift from reality.
+    /// Recovers the delegate from the sidecar file, so the app holds no
+    /// separate state that could drift from what the shim will actually run.
     private func installedDelegate() -> String? {
-        guard
-            let script = try? String(contentsOf: paths.shimScript, encoding: .utf8),
-            let line = script.split(separator: "\n").first(where: { $0.hasPrefix("delegate=") })
+        guard let value = try? String(contentsOf: paths.shimDelegateFile, encoding: .utf8),
+              !value.isEmpty
         else { return nil }
-
-        let value = line.dropFirst("delegate=".count)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
-        return value.isEmpty ? nil : value
+        return value
     }
 
     // MARK: - settings.json

@@ -34,7 +34,7 @@ public enum MenuBarLabelRenderer {
         let severity = Severity.of(worst.percent ?? 0, thresholds)
         // The marker doubles as this mode's identity glyph, so it is always
         // shown and simply changes shape with severity.
-        let text = "\(severity.marker) \(stalePrefix(worst))\(percentText(worst))"
+        let text = "\(severity.marker) \(stalePrefix(worst))\(worst.percentLabel)"
         return .segments([
             Segment(text: text, severity: severity, isStale: worst.isStale, hasData: true)
         ])
@@ -49,7 +49,7 @@ public enum MenuBarLabelRenderer {
             let state = usage[provider]?.dominant(now: now) ?? .unknown
             let severity = Severity.of(state.percent ?? 0, thresholds)
             let body = state.hasData
-                ? "\(marker(severity))\(stalePrefix(state))\(percentText(state))"
+                ? "\(marker(severity))\(stalePrefix(state))\(state.percentLabel)"
                 : "—"
             return Segment(
                 text: "\(provider.shortLabel) \(body)",
@@ -75,7 +75,7 @@ public enum MenuBarLabelRenderer {
             let body: String
             if dominant.hasData {
                 body = "\(marker(severity))\(stalePrefix(dominant))"
-                    + "\(number(five))/\(number(seven))"
+                    + "\(five.numberLabel)/\(seven.numberLabel)"
             } else {
                 body = "—"
             }
@@ -117,12 +117,4 @@ public enum MenuBarLabelRenderer {
         state.isStale ? "‹" : ""
     }
 
-    private static func percentText(_ state: WindowState) -> String {
-        "\(number(state))%"
-    }
-
-    private static func number(_ state: WindowState) -> String {
-        guard let percent = state.percent else { return "—" }
-        return String(Int(percent.rounded()))
-    }
 }

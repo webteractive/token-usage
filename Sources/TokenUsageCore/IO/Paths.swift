@@ -26,6 +26,15 @@ public struct Paths: Sendable {
         claudeDirectory.appendingPathComponent("settings.json.tokenusage-backup")
     }
     public var shimScript: URL { claudeDirectory.appendingPathComponent("tokenusage-shim.sh") }
+    /// Holds the delegated statusline command as plain data.
+    ///
+    /// Kept out of the shim script deliberately: interpolating an arbitrary
+    /// command into shell source would break on quotes and expand `$(...)` at
+    /// assignment time. Claude Code's own documented statusline example
+    /// contains both, so this is a likely input, not a theoretical one.
+    public var shimDelegateFile: URL {
+        claudeDirectory.appendingPathComponent("tokenusage-shim-delegate")
+    }
 
     public var codexSessions: URL {
         home.appendingPathComponent(".codex/sessions", isDirectory: true)

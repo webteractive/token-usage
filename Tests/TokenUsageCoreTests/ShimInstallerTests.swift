@@ -23,6 +23,12 @@ final class ShimInstallerTests: XCTestCase {
         try Data(json.utf8).write(to: paths.claudeSettings)
     }
 
+    private func settingsJSON(command: String) throws -> String {
+        let object = ["statusLine": ["command": command, "type": "command"]]
+        let data = try JSONSerialization.data(withJSONObject: object)
+        return String(decoding: data, as: UTF8.self)
+    }
+
     private func settingsCommand() throws -> String? {
         let data = try Data(contentsOf: paths.claudeSettings)
         let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
@@ -75,9 +81,9 @@ final class ShimInstallerTests: XCTestCase {
         try installer.install()
         let script = try String(contentsOf: paths.shimScript, encoding: .utf8)
         XCTAssertFalse(script.contains("__STATE_FILE__"))
-        XCTAssertFalse(script.contains("__DELEGATE__"))
+        XCTAssertFalse(script.contains("__DELEGATE_FILE__"))
         XCTAssertTrue(script.contains(paths.claudeRawState.path))
-        XCTAssertTrue(script.contains("~/.claude/statusline.sh"))
+        XCTAssertEqual(try String(contentsOf: paths.shimDelegateFile, encoding: .utf8), "~/.claude/statusline.sh")
     }
 
     func testInstallBacksUpSettings() throws {
@@ -99,8 +105,7 @@ final class ShimInstallerTests: XCTestCase {
     func testInstallWithNoExistingStatuslineLeavesDelegateEmpty() throws {
         try writeSettings("{}")
         try installer.install()
-        let script = try String(contentsOf: paths.shimScript, encoding: .utf8)
-        XCTAssertTrue(script.contains(#"delegate=""#))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: paths.shimDelegateFile.path))
         XCTAssertEqual(installer.status(), .installed(delegate: nil))
     }
 
@@ -135,6 +140,41 @@ final class ShimInstallerTests: XCTestCase {
         try installer.install()
         try installer.uninstall()
         XCTAssertNil(try settingsCommand())
+    }
+
+    /// Claude Code's own documented statusline example is an inline command
+    /// containing both double quotes and $(...). Baking that into the shim
+    /// would corrupt the script or expand at assignment time, so the delegate
+    /// is stored as data instead. Asserts stdin still arrives intact.
+    func testDelegateContainingQuotesAndSubstitutionStillReceivesStdin() throws {
+        let real = paths.claudeDirectory.appendingPathComponent("real.sh")
+        try Data("#!/bin/sh\ncat | sed 's/^/GOT:/'\n".utf8).write(to: real)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: real.path)
+
+        // Quotes, a command substitution, and a variable reference.
+        let tricky = #"marker="$(echo hi)"; \#(real.path)"#
+        try writeSettings(try settingsJSON(command: tricky))
+        try installer.install()
+
+        // The script itself must not contain the delegate text at all.
+        let script = try String(contentsOf: paths.shimScript, encoding: .utf8)
+        XCTAssertFalse(script.contains("$(echo hi)"))
+        XCTAssertFalse(script.contains("__DELEGATE_FILE__"))
+
+        XCTAssertEqual(installer.status(), .installed(delegate: tricky))
+
+        let payload = #"{"rate_limits":{"five_hour":{"used_percentage":47,"resets_at":1}}}"#
+        let output = try run(paths.shimScript.path, stdin: payload)
+        XCTAssertEqual(output.trimmingCharacters(in: .whitespacesAndNewlines), "GOT:\(payload)")
+        XCTAssertEqual(try String(contentsOf: paths.claudeRawState, encoding: .utf8), payload)
+    }
+
+    func testUninstallRemovesDelegateSidecar() throws {
+        try writeSettings(#"{"statusLine":{"command":"~/.claude/statusline.sh","type":"command"}}"#)
+        try installer.install()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: paths.shimDelegateFile.path))
+        try installer.uninstall()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: paths.shimDelegateFile.path))
     }
 
     // MARK: - Behaviour of the installed shim

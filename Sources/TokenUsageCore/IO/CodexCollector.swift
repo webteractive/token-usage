@@ -35,7 +35,7 @@ public struct CodexCollector: Sendable {
                   let modified = values.contentModificationDate
             else { continue }
 
-            if newest == nil || modified > newest!.modified {
+            if modified > (newest?.modified ?? .distantPast) {
                 newest = (url, modified)
             }
         }

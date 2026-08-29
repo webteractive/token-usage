@@ -6,6 +6,7 @@ struct DropdownView: View {
     let preferences: Preferences
 
     @State private var showingSettings = false
+    @State private var installError: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -54,7 +55,7 @@ struct DropdownView: View {
             Text(label)
                 .frame(width: 22, alignment: .leading)
                 .foregroundStyle(.secondary)
-            Text(percentText(state))
+            Text(state.percentLabel)
                 .frame(width: 44, alignment: .trailing)
                 .foregroundStyle(state.hasData ? severity.color : .secondary)
                 .opacity(state.isStale ? 0.6 : 1)
@@ -66,18 +67,25 @@ struct DropdownView: View {
         .monospacedDigit()
     }
 
-    private func percentText(_ state: WindowState) -> String {
-        guard let percent = state.percent else { return "—" }
-        return "\(Int(percent.rounded()))%"
-    }
-
     private var shimPrompt: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Claude reporting is off").font(.caption).bold()
             Text("Claude Code only reports quota to its statusline. Installing the helper captures it; your existing statusline keeps working.")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-            Button("Install helper") { try? model.installShim() }
+            Button("Install helper") {
+                // Surfaced rather than swallowed: a failed install otherwise
+                // looks identical to a button that simply does nothing.
+                do {
+                    try model.installShim()
+                    installError = nil
+                } catch {
+                    installError = error.localizedDescription
+                }
+            }
+            if let installError {
+                Text(installError).font(.caption2).foregroundStyle(.red)
+            }
         }
     }
 }

@@ -58,4 +58,15 @@ public extension WindowState {
     }
 
     var hasData: Bool { percent != nil }
+
+    /// How this reading renders as a number. The em dash is load-bearing: a
+    /// provider that never reported must never read as 0%.
+    var numberLabel: String {
+        guard let percent else { return "—" }
+        return String(Int(percent.rounded()))
+    }
+
+    var percentLabel: String {
+        hasData ? "\(numberLabel)%" : "—"
+    }
 }
