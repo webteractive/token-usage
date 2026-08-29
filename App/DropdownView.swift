@@ -5,7 +5,6 @@ struct DropdownView: View {
     let model: UsageViewModel
     let preferences: Preferences
 
-    @State private var showingSettings = false
     @State private var installError: String?
 
     var body: some View {
@@ -22,7 +21,12 @@ struct DropdownView: View {
             Divider()
 
             HStack {
-                Button("Settings…") { showingSettings = true }
+                SettingsLink {
+                    Image(systemName: "gearshape")
+                        .imageScale(.large)
+                }
+                .help("Settings")
+                .accessibilityLabel("Settings")
                 Spacer()
                 Button("Quit") { NSApplication.shared.terminate(nil) }
             }
@@ -30,9 +34,6 @@ struct DropdownView: View {
         }
         .padding(12)
         .frame(width: 300)
-        .sheet(isPresented: $showingSettings) {
-            SettingsView(model: model, preferences: preferences)
-        }
     }
 
     @ViewBuilder

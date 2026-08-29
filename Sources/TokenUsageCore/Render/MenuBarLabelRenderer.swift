@@ -16,7 +16,6 @@ public enum MenuBarLabelRenderer {
         case .worstOf: renderWorstOf(usage, thresholds, now)
         case .perTool: renderPerTool(usage, thresholds, now)
         case .full: renderFull(usage, thresholds, now)
-        case .rings: renderRings(usage, thresholds, now)
         }
     }
 
@@ -29,15 +28,13 @@ public enum MenuBarLabelRenderer {
     ) -> LabelSpec {
         let states = order.compactMap { usage[$0]?.dominant(now: now) }.filter(\.hasData)
         guard let worst = states.max(by: { ($0.percent ?? 0) < ($1.percent ?? 0) }) else {
-            return .segments([Segment(text: "—", severity: .normal, isStale: false, hasData: false)])
+            return [Segment(text: "—", severity: .normal, isStale: false, hasData: false)]
         }
         let severity = Severity.of(worst.percent ?? 0, thresholds)
         // The marker doubles as this mode's identity glyph, so it is always
         // shown and simply changes shape with severity.
         let text = "\(severity.marker) \(stalePrefix(worst))\(worst.percentLabel)"
-        return .segments([
-            Segment(text: text, severity: severity, isStale: worst.isStale, hasData: true)
-        ])
+        return [Segment(text: text, severity: severity, isStale: worst.isStale, hasData: true)]
     }
 
     private static func renderPerTool(
@@ -45,7 +42,7 @@ public enum MenuBarLabelRenderer {
         _ thresholds: Thresholds,
         _ now: Date
     ) -> LabelSpec {
-        .segments(order.map { provider in
+        order.map { provider in
             let state = usage[provider]?.dominant(now: now) ?? .unknown
             let severity = Severity.of(state.percent ?? 0, thresholds)
             let body = state.hasData
@@ -57,7 +54,7 @@ public enum MenuBarLabelRenderer {
                 isStale: state.isStale,
                 hasData: state.hasData
             )
-        })
+        }
     }
 
     private static func renderFull(
@@ -65,7 +62,7 @@ public enum MenuBarLabelRenderer {
         _ thresholds: Thresholds,
         _ now: Date
     ) -> LabelSpec {
-        .segments(order.map { provider in
+        order.map { provider in
             let provided = usage[provider] ?? .empty
             let parts = provided.windows
                 .map { $0.window.state(now: now).numberLabel }
@@ -85,24 +82,7 @@ public enum MenuBarLabelRenderer {
                 isStale: dominant.isStale,
                 hasData: dominant.hasData
             )
-        })
-    }
-
-    private static func renderRings(
-        _ usage: [Provider: ProviderUsage],
-        _ thresholds: Thresholds,
-        _ now: Date
-    ) -> LabelSpec {
-        .rings(order.map { provider in
-            let state = usage[provider]?.dominant(now: now) ?? .unknown
-            let percent = state.percent ?? 0
-            return Ring(
-                fill: min(max(percent / 100, 0), 1),
-                severity: Severity.of(percent, thresholds),
-                isStale: state.isStale,
-                hasData: state.hasData
-            )
-        })
+        }
     }
 
     // MARK: - Formatting

@@ -22,5 +22,12 @@ struct TokenUsageApp: App {
                 .task { model.start() }
         }
         .menuBarExtraStyle(.window)
+
+        // A real window, not a sheet: a MenuBarExtra popover dismisses on focus
+        // loss, which strands anything modal presented from inside it. This is
+        // also what wires up the standard Cmd-, shortcut.
+        Settings {
+            SettingsView(model: model, preferences: preferences)
+        }
     }
 }

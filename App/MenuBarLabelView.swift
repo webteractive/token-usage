@@ -17,23 +17,14 @@ struct MenuBarLabelView: View {
     let spec: LabelSpec
 
     var body: some View {
-        switch spec {
-        case .segments(let segments):
-            HStack(spacing: 4) {
-                ForEach(Array(segments.enumerated()), id: \.offset) { index, segment in
-                    if index > 0 {
-                        Text("·").foregroundStyle(.tertiary)
-                    }
-                    Text(segment.text)
-                        .foregroundStyle(segment.severity.color)
-                        .opacity(segment.isStale ? 0.55 : 1)
+        HStack(spacing: 4) {
+            ForEach(Array(spec.enumerated()), id: \.offset) { index, segment in
+                if index > 0 {
+                    Text("·").foregroundStyle(.tertiary)
                 }
-            }
-        case .rings(let rings):
-            HStack(spacing: 4) {
-                ForEach(Array(rings.enumerated()), id: \.offset) { _, ring in
-                    RingView(ring: ring)
-                }
+                Text(segment.text)
+                    .foregroundStyle(segment.severity.color)
+                    .opacity(segment.isStale ? 0.55 : 1)
             }
         }
     }
