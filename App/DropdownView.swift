@@ -51,7 +51,7 @@ struct DropdownView: View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 6) {
                 Text(provider.displayName).font(.headline)
-                if provider == .claude { sourceBadge }
+                sourceBadge(provider)
             }
             if usage.windows.isEmpty {
                 Text("no data").font(.caption).foregroundStyle(.secondary)
@@ -66,20 +66,18 @@ struct DropdownView: View {
         }
     }
 
-    /// Says plainly where Claude's numbers came from, because the two sources
-    /// differ in completeness.
+    /// Says plainly where a provider's numbers came from, because the live and
+    /// fallback sources differ in completeness.
     @ViewBuilder
-    private var sourceBadge: some View {
-        switch model.claudeSource {
-        case .api:
+    private func sourceBadge(_ provider: Provider) -> some View {
+        switch model.sourceStatus[provider] {
+        case .live:
             Text("live").font(.caption2).foregroundStyle(.secondary)
-        case .statusline:
-            Text("statusline · partial").font(.caption2).foregroundStyle(.orange)
-        case .needsReauth:
-            Text("sign-in expired \u{2014} run claude").font(.caption2).foregroundStyle(.orange)
-        case .failed:
-            Text("unavailable").font(.caption2).foregroundStyle(.orange)
-        case .none:
+        case .degraded(let how):
+            Text(how).font(.caption2).foregroundStyle(.orange)
+        case .unavailable(let why):
+            Text(why).font(.caption2).foregroundStyle(.orange)
+        case nil:
             EmptyView()
         }
     }
