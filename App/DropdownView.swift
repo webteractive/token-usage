@@ -28,7 +28,14 @@ struct DropdownView: View {
                 .help("Settings")
                 .accessibilityLabel("Settings")
                 Spacer()
-                Button("Quit") { NSApplication.shared.terminate(nil) }
+                Button {
+                    NSApplication.shared.terminate(nil)
+                } label: {
+                    Image(systemName: "power")
+                        .imageScale(.large)
+                }
+                .help("Quit Token Usage")
+                .accessibilityLabel("Quit")
             }
             .buttonStyle(.plain)
         }
