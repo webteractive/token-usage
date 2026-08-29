@@ -36,15 +36,13 @@ public enum CodexRolloutParser {
     }
 
     /// - Parameter chunk: the tail of a rollout file. Its first line is usually
-    ///   truncated mid-JSON by the fixed-size read and is discarded.
+    ///   truncated mid-JSON by the fixed-size read; no special handling is
+    ///   needed because a partial line simply fails to decode and is skipped.
     /// - Returns: the last complete reading, or nil if the chunk holds none.
     public static func parseLatest(chunk: String) -> ProviderUsage? {
-        let lines = chunk.split(separator: "\n", omittingEmptySubsequences: true)
-        guard lines.count > 1 else { return nil }
-
         // Scan backwards: the newest reading wins, and stopping at the first
         // hit avoids decoding the whole chunk.
-        for line in lines.dropFirst().reversed() {
+        for line in chunk.split(separator: "\n", omittingEmptySubsequences: true).reversed() {
             guard
                 let decoded = try? JSONDecoder().decode(Line.self, from: Data(line.utf8)),
                 let limits = decoded.payload?.rate_limits,
