@@ -18,18 +18,34 @@ public struct ClaudeUsageAPI: Sendable {
     public static let endpoint = URL(string: "https://api.anthropic.com/api/oauth/usage")!
 
     private let credentials: KeychainCredentials
-    private let session: URLSession
+    private let transport: @Sendable (URLRequest) async throws -> (Data, URLResponse)
 
     public init(credentials: KeychainCredentials = .init(), session: URLSession = .shared) {
         self.credentials = credentials
-        self.session = session
+        self.transport = { try await session.data(for: $0) }
+    }
+
+    init(
+        credentials: KeychainCredentials,
+        transport: @escaping @Sendable (URLRequest) async throws -> (Data, URLResponse)
+    ) {
+        self.credentials = credentials
+        self.transport = transport
     }
 
     public func fetch(now: Date = .now) async throws -> ProviderUsage {
-        // Read fresh every time: the token is short-lived and Claude Code may
-        // have rotated it since the last poll.
-        let token = try credentials.accessToken(now: now)
+        let token = try await credentials.accessToken(now: now)
+        do {
+            return try await fetch(using: token, now: now)
+        } catch ClaudeUsageAPIError.unauthorized {
+            // Claude Code owns token rotation. If the cached token was revoked,
+            // reread its Keychain item once and retry once—never loop.
+            let refreshed = try await credentials.accessToken(now: now, forceRefresh: true)
+            return try await fetch(using: refreshed, now: now)
+        }
+    }
 
+    private func fetch(using token: String, now: Date) async throws -> ProviderUsage {
         var request = URLRequest(url: Self.endpoint)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
@@ -40,7 +56,7 @@ public struct ClaudeUsageAPI: Sendable {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await session.data(for: request)
+            (data, response) = try await transport(request)
         } catch {
             throw ClaudeUsageAPIError.transport(error.localizedDescription)
         }

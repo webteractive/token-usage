@@ -42,10 +42,11 @@ appear automatically. Unknown kinds are preserved rather than dropped —
 silently discarding a limit is how you fail to warn someone about the one
 that is about to block them.
 
-Token handling: read fresh from the Keychain per request, never cached to disk,
-never written back. The token is short-lived and Claude Code refreshes it during
-normal use, so on a 401 the app reports **"sign-in expired — run `claude`"**
-rather than racing Claude Code to refresh the same Keychain item.
+Token handling: read from the Keychain once and cached only in process memory
+until expiry, never cached to disk and never written back. If the server rejects
+the cached token, the app rereads the Keychain and retries once. Claude Code
+continues to own token refresh; if the retry is also rejected, the app reports
+**"sign-in expired — run `claude`"**.
 
 The endpoint is undocumented. If it changes shape or disappears, the app says
 so and falls back — it never shows a number it cannot justify.

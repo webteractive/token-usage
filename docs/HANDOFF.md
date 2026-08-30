@@ -31,7 +31,9 @@ Every figure is exact. **Nothing is estimated anywhere, deliberately.** A provid
 with no data shows an em dash, never `0%`.
 
 **Claude, live:** `GET https://api.anthropic.com/api/oauth/usage`, Bearer token
-read fresh from the Keychain (`Claude Code-credentials` -> `claudeAiOauth.accessToken`).
+read from the Keychain (`Claude Code-credentials` -> `claudeAiOauth.accessToken`)
+and cached only in process memory until expiry. A 401/403 forces one Keychain
+reread and one bounded retry.
 Returns a normalised `limits` **array**: `session`, `weekly_all`, `weekly_scoped`
 (with `scope.model.display_name`, e.g. "Fable"). Undocumented endpoint.
 

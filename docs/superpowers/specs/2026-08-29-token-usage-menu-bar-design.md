@@ -312,10 +312,11 @@ as a fallback that degrades to two windows rather than dying, and is uninstalled
 by default. The UI labels the active source, marking the fallback
 `statusline · partial` so a partial view is never mistaken for a complete one.
 
-**Credentials.** The token is read fresh from the Keychain per request, never
-cached to disk and never written back — Claude Code owns that item and refreshes
-it during normal use. On 401 the app reports "sign-in expired — run `claude`"
-rather than racing Claude Code to refresh it.
+**Credentials.** The token is read from the Keychain once and cached only in
+process memory until expiry, never cached to disk and never written back —
+Claude Code owns that item and refreshes it during normal use. On 401/403 the app
+forces one Keychain reread and retries once, then reports "sign-in expired — run
+`claude`" if the refreshed credential is also rejected.
 
 **Privacy claim narrowed.** The original spec claimed no network and no
 credentials. That now holds only with the API source disabled; the README states

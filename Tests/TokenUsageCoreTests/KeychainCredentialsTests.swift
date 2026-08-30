@@ -9,11 +9,7 @@ final class KeychainCredentialsTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
 
     private func blob(token: String, expiresInHours: Double?) -> Data {
-        let expiry = expiresInHours.map { (now.timeIntervalSince1970 + $0 * 3600) * 1000 }
-        let oauth: [String: Any] = expiry.map {
-            ["accessToken": token, "expiresAt": $0]
-        } ?? ["accessToken": token]
-        return try! JSONSerialization.data(withJSONObject: ["claudeAiOauth": oauth])
+        credentialBlob(token: token, now: now, expiresInHours: expiresInHours)
     }
 
     func testReadsAccessToken() throws {
@@ -47,5 +43,73 @@ final class KeychainCredentialsTests: XCTestCase {
             try KeychainCredentials.token(from: blob(token: "abc", expiresInHours: nil), now: now),
             "abc"
         )
+    }
+
+    func testRepeatedAccessUsesOneKeychainRead() async throws {
+        let source = CredentialDataSource([blob(token: "abc", expiresInHours: 3)])
+        let credentials = KeychainCredentials(readData: source.read)
+
+        let first = try await credentials.accessToken(now: now)
+        let second = try await credentials.accessToken(now: now.addingTimeInterval(60))
+        XCTAssertEqual(first, "abc")
+        XCTAssertEqual(second, "abc")
+        XCTAssertEqual(source.readCount, 1)
+    }
+
+    func testExpiryCausesFreshKeychainRead() async throws {
+        let source = CredentialDataSource([
+            blob(token: "first", expiresInHours: 1),
+            blob(token: "second", expiresInHours: 3),
+        ])
+        let credentials = KeychainCredentials(readData: source.read)
+
+        let first = try await credentials.accessToken(now: now)
+        let second = try await credentials.accessToken(now: now.addingTimeInterval(2 * 3600))
+        XCTAssertEqual(first, "first")
+        XCTAssertEqual(second, "second")
+        XCTAssertEqual(source.readCount, 2)
+    }
+
+    func testForcedRefreshBypassesValidCache() async throws {
+        let source = CredentialDataSource([
+            blob(token: "first", expiresInHours: 3),
+            blob(token: "second", expiresInHours: 3),
+        ])
+        let credentials = KeychainCredentials(readData: source.read)
+
+        let first = try await credentials.accessToken(now: now)
+        let second = try await credentials.accessToken(now: now, forceRefresh: true)
+        XCTAssertEqual(first, "first")
+        XCTAssertEqual(second, "second")
+        XCTAssertEqual(source.readCount, 2)
+    }
+
+    func testAbsentExpiryStaysCachedForProcess() async throws {
+        let source = CredentialDataSource([blob(token: "abc", expiresInHours: nil)])
+        let credentials = KeychainCredentials(readData: source.read)
+
+        let first = try await credentials.accessToken(now: now)
+        let second = try await credentials.accessToken(
+            now: now.addingTimeInterval(365 * 86_400)
+        )
+        XCTAssertEqual(first, "abc")
+        XCTAssertEqual(second, "abc")
+        XCTAssertEqual(source.readCount, 1)
+    }
+
+    func testConcurrentAccessesShareOneKeychainRead() async throws {
+        let source = CredentialDataSource([blob(token: "abc", expiresInHours: 3)])
+        let credentials = KeychainCredentials(readData: source.read)
+        let now = now
+
+        let tokens = try await withThrowingTaskGroup(of: String.self) { group in
+            for _ in 0..<10 {
+                group.addTask { try await credentials.accessToken(now: now) }
+            }
+            return try await group.reduce(into: []) { $0.append($1) }
+        }
+
+        XCTAssertEqual(tokens, Array(repeating: "abc", count: 10))
+        XCTAssertEqual(source.readCount, 1)
     }
 }
