@@ -31,6 +31,7 @@ let project = Project(
                 "LSApplicationCategoryType": "public.app-category.developer-tools",
             ]),
             sources: ["App/**"],
+            resources: ["App/Resources/**"],
             scripts: [
                 .post(
                     script: stampBuildCommit,
@@ -39,7 +40,12 @@ let project = Project(
                     basedOnDependencyAnalysis: false
                 ),
             ],
-            dependencies: [.package(product: "TokenUsageCore")]
+            dependencies: [.package(product: "TokenUsageCore")],
+            settings: .settings(base: [
+                "ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon",
+                // The catalog exists only for the icon; keep the system accent colour.
+                "ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME": "",
+            ])
         ),
     ]
 )

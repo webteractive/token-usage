@@ -115,9 +115,11 @@ Switchable in Settings, with a live preview:
 | One per tool (default) | `C ▲ 86% · X 1%` |
 | Every window | `C ▲ 65/86/4 · X 0/1` |
 
-Severity is **never signalled by colour alone** — `●` normal, `▲` warning, `■`
-critical — so it survives red-green colour deficiency and a busy wallpaper
-behind a translucent menu bar. Thresholds default to 75% and 90% and are
+Severity is **never signalled by colour alone** — `▲` warning, `■` critical —
+so it survives red-green colour deficiency and a busy wallpaper behind a
+translucent menu bar. A normal reading carries no marker in the per-tool
+modes; only *Worst of all windows* shows `●`, where the marker doubles as the
+segment's identity glyph. Thresholds default to 75% and 90% and are
 configurable. There are no notifications; nothing ever steals focus.
 
 ## Building
@@ -130,6 +132,9 @@ swift test          # core library
 
 The core (state machine, parsers, renderer, installer) is a plain SPM library
 with no SwiftUI dependency, so it is testable with `swift test` alone.
+
+The app icon is drawn in code. `swift scripts/make-icon.swift` regenerates every
+size into `App/Resources/Assets.xcassets/AppIcon.appiconset`.
 
 ## Download and updates
 
