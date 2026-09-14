@@ -10,9 +10,17 @@ struct DropdownView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            ForEach(Provider.allCases, id: \.self) { provider in
-                providerSection(provider)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(model.sources, id: \.id) { source in
+                        sourceSection(source)
+                    }
+                }
             }
+            // Enough for four accounts before scrolling, so a machine with many
+            // logins degrades to a scroll rather than a dropdown taller than
+            // the screen.
+            .frame(maxHeight: 360)
 
             if case .notInstalled = model.shimStatus {
                 Divider()
@@ -61,17 +69,17 @@ struct DropdownView: View {
     }
 
     @ViewBuilder
-    private func providerSection(_ provider: Provider) -> some View {
-        let usage = model.usage[provider] ?? .empty
+    private func sourceSection(_ source: SourceDescriptor) -> some View {
+        let usage = model.usage[source.id] ?? .empty
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 6) {
-                Text(provider.displayName).font(.headline)
-                sourceBadge(provider)
+                Text(source.displayName).font(.headline)
+                sourceBadge(source.id)
             }
             if usage.windows.isEmpty {
                 Text("no data").font(.caption).foregroundStyle(.secondary)
             } else {
-                // Every window the provider reports, however many that is —
+                // Every window the source reports, however many that is —
                 // dropping one is how you fail to warn about the limit that is
                 // about to block you.
                 ForEach(usage.windows, id: \.kind) { quota in
@@ -81,11 +89,12 @@ struct DropdownView: View {
         }
     }
 
-    /// Says plainly where a provider's numbers came from, because the live and
-    /// fallback sources differ in completeness.
+    /// Says plainly where a source's numbers came from, because the live and
+    /// fallback sources differ in completeness — and because only the default
+    /// account has a fallback at all.
     @ViewBuilder
-    private func sourceBadge(_ provider: Provider) -> some View {
-        switch model.sourceStatus[provider] {
+    private func sourceBadge(_ id: SourceID) -> some View {
+        switch model.sourceStatus[id] {
         case .live:
             Text("live").font(.caption2).foregroundStyle(.secondary)
         case .degraded(let how):
