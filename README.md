@@ -7,6 +7,20 @@ countdowns, for **Claude Code** and **Codex** side by side.
 C 47% · X 3%
 ```
 
+With several Claude logins — the default one plus any zetty accounts — the bar
+collapses Claude to whichever account is closest to a wall, so it stays the same
+width however many you add:
+
+```
+C ▲ 80% · X 3%
+```
+
+Switch to **One per account** to see them side by side:
+
+```
+G 47% · W 12% · D ▲ 80% · X 3%
+```
+
 Click for the full picture:
 
 ```
@@ -50,6 +64,25 @@ continues to own token refresh; if the retry is also rejected, the app reports
 
 The endpoint is undocumented. If it changes shape or disappears, the app says
 so and falls back — it never shows a number it cannot justify.
+
+**Claude — several accounts.** zetty runs agent panes under named accounts, each
+a separate Claude login with its own config directory. Every one is tracked.
+
+Accounts come from `zetty accounts --json` when zetty is installed, and from a
+scan of `~/.zetty/accounts` for directories containing `.claude.json` when it is
+not. Asking zetty matters because that folder also holds **Codex** accounts, and
+only zetty knows which is which — a naive scan invents a Claude account that
+reports "not signed in" forever.
+
+Each account's credential is a separate Keychain item: `Claude Code-credentials`
+for the default login, and `Claude Code-credentials-<first 8 hex of sha256 of the
+config directory path>` for the rest. An account is therefore the same usage API
+pointed at a different item — no new endpoint, no new parser.
+
+macOS asks once per account before this app may read its item. The statusline
+fallback below covers the **default account only** — the shim lives in
+`~/.claude/settings.json` and sees nothing else — so a non-default account whose
+API call fails reports "last known" or "unavailable" rather than falling back.
 
 **Claude — the statusline fallback.** Optional and off by default. A shim
 installed as your `statusLine.command` captures the payload Claude Code passes
@@ -113,6 +146,7 @@ Switchable in Settings, with a live preview:
 |---|---|
 | Worst of all windows | `● 86%` |
 | One per tool (default) | `C ▲ 86% · X 1%` |
+| One per account | `G 47% · W 12% · D ▲ 86% · X 1%` |
 | Every window | `C ▲ 65/86/4 · X 0/1` |
 
 Severity is **never signalled by colour alone** — `▲` warning, `■` critical —
@@ -173,8 +207,13 @@ updater, so releases should not be assembled manually.
 
 ## Privacy
 
-The only network call is to Anthropic's own usage endpoint, authenticated with
-the token Claude Code already stores on this machine. Nothing is sent anywhere
-else, nothing is cached to disk, and the token is never written back. Codex data
-never leaves the filesystem. Running with the API source disabled makes the app
-fully offline and credential-free.
+The only network calls are to Anthropic's own usage endpoint — one per Claude
+account — each authenticated with the token Claude Code already stores for that
+account on this machine. Nothing is sent anywhere else, nothing is cached to
+disk, and no token is ever written back.
+
+Locally the app reads `~/.zetty/accounts` and each account's `.claude.json` (or
+`~/.claude.json` for the default login) to learn which accounts exist and what to
+call them. It never reads a session transcript. Codex data never leaves the
+filesystem. Running with the API source disabled makes the app fully offline and
+credential-free.
