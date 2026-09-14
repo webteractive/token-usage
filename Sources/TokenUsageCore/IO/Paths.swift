@@ -39,4 +39,15 @@ public struct Paths: Sendable {
     public var codexSessions: URL {
         home.appendingPathComponent(".codex/sessions", isDirectory: true)
     }
+
+    public var zettyAccounts: URL {
+        home.appendingPathComponent(".zetty/accounts", isDirectory: true)
+    }
+
+    /// The default login's `oauthAccount` lives *beside* `~/.claude`, not inside
+    /// it — `~/.claude/.claude.json` does not exist. Non-default accounts keep
+    /// theirs inside their own config directory.
+    public var defaultClaudeConfigJSON: URL {
+        home.appendingPathComponent(".claude.json")
+    }
 }
