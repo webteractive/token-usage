@@ -1,0 +1,27 @@
+{
+  "accounts" : [
+    {
+      "agent" : "claude",
+      "directory" : "~/.zetty/accounts/warda",
+      "email" : "warda@example.com",
+      "id" : "warda",
+      "name" : "Warda",
+      "orgName" : "Example Co"
+    },
+    {
+      "agent" : "codex",
+      "directory" : "~/.zetty/accounts/personal-test",
+      "id" : "personal-test",
+      "name" : "Personal Test"
+    },
+    {
+      "agent" : "claude",
+      "directory" : "~/.zetty/accounts/devops",
+      "email" : "devops@example.com",
+      "id" : "devops",
+      "name" : "Devops",
+      "orgName" : "Devops Org"
+    }
+  ],
+  "defaultDirectory" : "~/.claude"
+}
