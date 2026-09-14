@@ -25,19 +25,45 @@ final class MenuBarLabelRendererTests: XCTestCase {
         ].compactMap { $0 })
     }
 
-    private func usage(claude: ProviderUsage, codex: ProviderUsage) -> [Provider: ProviderUsage] {
-        [.claude: claude, .codex: codex]
+    private func account(_ id: String, _ name: String) -> ClaudeAccount {
+        ClaudeAccount(
+            id: id,
+            directory: URL(fileURLWithPath: "/Users/example/.zetty/accounts/\(id)"),
+            displayName: name
+        )
     }
 
-    private var sample: [Provider: ProviderUsage] {
+    private var soleAccount: [ClaudeAccount] {
+        [ClaudeAccount(
+            id: ClaudeAccount.defaultID,
+            directory: URL(fileURLWithPath: "/Users/example/.claude"),
+            displayName: "Glen"
+        )]
+    }
+
+    private func usage(claude: ProviderUsage, codex: ProviderUsage) -> [SourceID: ProviderUsage] {
+        [.claude(ClaudeAccount.defaultID): claude, .codex: codex]
+    }
+
+    private var sample: [SourceID: ProviderUsage] {
         usage(
             claude: pair(session: window(47), weekly: window(31)),
             codex: pair(session: window(3), weekly: window(1))
         )
     }
 
-    private func render(_ mode: DisplayMode, _ u: [Provider: ProviderUsage]) -> LabelSpec {
-        MenuBarLabelRenderer.render(usage: u, mode: mode, thresholds: .default, now: now)
+    private func render(
+        _ mode: DisplayMode,
+        _ u: [SourceID: ProviderUsage],
+        accounts: [ClaudeAccount]? = nil
+    ) -> LabelSpec {
+        MenuBarLabelRenderer.render(
+            usage: u,
+            sources: SourceCatalog.descriptors(claudeAccounts: accounts ?? soleAccount),
+            mode: mode,
+            thresholds: .default,
+            now: now
+        )
     }
 
     func testWorstOfShowsHighestAcrossBothProviders() {
@@ -119,5 +145,68 @@ final class MenuBarLabelRendererTests: XCTestCase {
         let segs = render(.perTool, sample)
         XCTAssertTrue(segs[0].text.hasPrefix("C"))
         XCTAssertTrue(segs[1].text.hasPrefix("X"))
+    }
+
+    // MARK: - Several accounts
+
+    private var threeAccounts: [ClaudeAccount] {
+        soleAccount + [account("devops", "Devops"), account("warda", "Warda")]
+    }
+
+    private var multiAccountSample: [SourceID: ProviderUsage] {
+        [
+            .claude(ClaudeAccount.defaultID): pair(session: window(47), weekly: window(31)),
+            .claude("devops"): pair(session: window(80), weekly: window(64)),
+            .claude("warda"): pair(session: window(12), weekly: window(8)),
+            .codex: pair(session: window(3), weekly: window(1)),
+        ]
+    }
+
+    /// The default mode must keep the bar a fixed width however many logins
+    /// exist, so Claude collapses to whichever account is closest to a wall.
+    func testPerToolCollapsesAccountsToTheWorst() {
+        let segs = render(.perTool, multiAccountSample, accounts: threeAccounts)
+
+        XCTAssertEqual(segs.map(\.text), ["C \u{25B2} 80%", "X 3%"])
+        XCTAssertEqual(segs[0].severity, .warning)
+    }
+
+    func testPerAccountShowsEverySourceSeparately() {
+        let segs = render(.perAccount, multiAccountSample, accounts: threeAccounts)
+
+        XCTAssertEqual(segs.map(\.text), ["G 47%", "D \u{25B2} 80%", "W 12%", "X 3%"])
+    }
+
+    func testPerAccountWithOneAccountMatchesPerTool() {
+        XCTAssertEqual(
+            render(.perAccount, sample).map(\.text),
+            render(.perTool, sample).map(\.text)
+        )
+    }
+
+    func testWorstOfSpansAccounts() {
+        let segs = render(.worstOf, multiAccountSample, accounts: threeAccounts)
+
+        XCTAssertEqual(segs.map(\.text), ["\u{25B2} 80%"])
+    }
+
+    func testFullShowsEveryWindowOfEverySource() {
+        let segs = render(.full, multiAccountSample, accounts: threeAccounts)
+
+        XCTAssertEqual(segs.map(\.text), ["G 47/31", "D \u{25B2} 80/64", "W 12/8", "X 3/1"])
+    }
+
+    func testAccountWithNoDataRendersEmDashNeverZero() {
+        var partial = multiAccountSample
+        partial[.claude("warda")] = .empty
+        let segs = render(.perAccount, partial, accounts: threeAccounts)
+
+        XCTAssertEqual(segs[2].text, "W \u{2014}")
+        XCTAssertFalse(segs[2].hasData)
+    }
+
+    func testEveryWindowModeIsNamedForWhatItShows() {
+        XCTAssertEqual(DisplayMode.full.title, "Every window")
+        XCTAssertEqual(DisplayMode.perAccount.title, "One per account")
     }
 }

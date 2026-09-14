@@ -2,31 +2,32 @@ import Foundation
 
 public enum MenuBarLabelRenderer {
 
-    /// Providers always render in a fixed order so the bar does not reshuffle
-    /// as numbers change.
-    private static let order: [Provider] = [.claude, .codex]
-
+    /// Sources arrive in a fixed order resolved at discovery, so the bar does
+    /// not reshuffle as numbers change.
     public static func render(
-        usage: [Provider: ProviderUsage],
+        usage: [SourceID: ProviderUsage],
+        sources: [SourceDescriptor],
         mode: DisplayMode,
         thresholds: Thresholds = .default,
         now: Date
     ) -> LabelSpec {
         switch mode {
-        case .worstOf: renderWorstOf(usage, thresholds, now)
-        case .perTool: renderPerTool(usage, thresholds, now)
-        case .full: renderFull(usage, thresholds, now)
+        case .worstOf: renderWorstOf(usage, sources, thresholds, now)
+        case .perTool: renderPerTool(usage, sources, thresholds, now)
+        case .perAccount: renderPerSource(usage, sources, thresholds, now, windows: false)
+        case .full: renderPerSource(usage, sources, thresholds, now, windows: true)
         }
     }
 
     // MARK: - Modes
 
     private static func renderWorstOf(
-        _ usage: [Provider: ProviderUsage],
+        _ usage: [SourceID: ProviderUsage],
+        _ sources: [SourceDescriptor],
         _ thresholds: Thresholds,
         _ now: Date
     ) -> LabelSpec {
-        let states = order.compactMap { usage[$0]?.dominant(now: now) }.filter(\.hasData)
+        let states = sources.compactMap { usage[$0.id]?.dominant(now: now) }.filter(\.hasData)
         guard let worst = states.max(by: { ($0.percent ?? 0) < ($1.percent ?? 0) }) else {
             return [Segment(text: "—", severity: .normal, isStale: false, hasData: false)]
         }
@@ -37,55 +38,74 @@ public enum MenuBarLabelRenderer {
         return [Segment(text: text, severity: severity, isStale: worst.isStale, hasData: true)]
     }
 
+    /// One segment per vendor: several Claude logins collapse to whichever is
+    /// closest to a wall. This is what keeps the bar a fixed width as accounts
+    /// are added, which is why it stays the default.
     private static func renderPerTool(
-        _ usage: [Provider: ProviderUsage],
+        _ usage: [SourceID: ProviderUsage],
+        _ sources: [SourceDescriptor],
         _ thresholds: Thresholds,
         _ now: Date
     ) -> LabelSpec {
-        order.map { provider in
-            let state = usage[provider]?.dominant(now: now) ?? .unknown
-            let severity = Severity.of(state.percent ?? 0, thresholds)
-            let body = state.hasData
-                ? "\(marker(severity))\(stalePrefix(state))\(state.percentLabel)"
-                : "—"
-            return Segment(
-                text: "\(provider.shortLabel) \(body)",
-                severity: state.hasData ? severity : .normal,
-                isStale: state.isStale,
-                hasData: state.hasData
-            )
+        var seen: [Provider] = []
+        for source in sources where !seen.contains(source.id.provider) {
+            seen.append(source.id.provider)
+        }
+
+        return seen.map { provider in
+            let states = sources
+                .filter { $0.id.provider == provider }
+                .compactMap { usage[$0.id]?.dominant(now: now) }
+                .filter(\.hasData)
+            let worst = states.max(by: { ($0.percent ?? 0) < ($1.percent ?? 0) }) ?? .unknown
+
+            return segment(label: provider.shortLabel, state: worst, body: nil, thresholds)
         }
     }
 
-    private static func renderFull(
-        _ usage: [Provider: ProviderUsage],
+    /// One segment per source — per account for Claude. `windows` decides
+    /// whether the body is the dominant figure or every window it reports.
+    private static func renderPerSource(
+        _ usage: [SourceID: ProviderUsage],
+        _ sources: [SourceDescriptor],
         _ thresholds: Thresholds,
-        _ now: Date
+        _ now: Date,
+        windows: Bool
     ) -> LabelSpec {
-        order.map { provider in
-            let provided = usage[provider] ?? .empty
-            let parts = provided.windows
-                .map { $0.window.state(now: now).numberLabel }
-                .joined(separator: "/")
+        sources.map { source in
+            let provided = usage[source.id] ?? .empty
             let dominant = provided.dominant(now: now)
-            let severity = Severity.of(dominant.percent ?? 0, thresholds)
+            let body = windows
+                ? provided.windows.map { $0.window.state(now: now).numberLabel }.joined(separator: "/")
+                : nil
 
-            let body: String
-            if dominant.hasData {
-                body = "\(marker(severity))\(stalePrefix(dominant))\(parts)"
-            } else {
-                body = "—"
-            }
-            return Segment(
-                text: "\(provider.shortLabel) \(body)",
-                severity: dominant.hasData ? severity : .normal,
-                isStale: dominant.isStale,
-                hasData: dominant.hasData
-            )
+            return segment(label: source.shortLabel, state: dominant, body: body, thresholds)
         }
     }
 
     // MARK: - Formatting
+
+    private static func segment(
+        label: String,
+        state: WindowState,
+        body: String?,
+        _ thresholds: Thresholds
+    ) -> Segment {
+        let severity = Severity.of(state.percent ?? 0, thresholds)
+        let text: String
+        if state.hasData {
+            let figures = body ?? state.percentLabel
+            text = "\(label) \(marker(severity))\(stalePrefix(state))\(figures)"
+        } else {
+            text = "\(label) —"
+        }
+        return Segment(
+            text: text,
+            severity: state.hasData ? severity : .normal,
+            isStale: state.isStale,
+            hasData: state.hasData
+        )
+    }
 
     /// Shown only when it carries information; a marker on every normal reading
     /// would just be noise.
@@ -96,5 +116,4 @@ public enum MenuBarLabelRenderer {
     private static func stalePrefix(_ state: WindowState) -> String {
         state.isStale ? "‹" : ""
     }
-
 }
