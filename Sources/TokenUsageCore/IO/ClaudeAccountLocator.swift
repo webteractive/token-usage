@@ -122,6 +122,12 @@ public struct ClaudeAccountLocator: Sendable {
 
     // MARK: - Subprocess
 
+    /// A listing that never returns must not become an app that never returns.
+    /// Reading to EOF blocks until the child exits, so a wedged zetty would
+    /// otherwise hang the caller forever; the sibling Codex client sets a
+    /// deadline for the same reason.
+    static let listingTimeout: TimeInterval = 5
+
     private static func runListing() -> Data? {
         guard let binary = locateBinary() else { return nil }
 
@@ -135,9 +141,19 @@ public struct ClaudeAccountLocator: Sendable {
 
         do { try process.run() } catch { return nil }
 
+        // Terminating the child closes the pipe, which is what releases the
+        // blocking read below — a timer around the read alone would not.
+        let watchdog = DispatchWorkItem {
+            if process.isRunning { process.terminate() }
+        }
+        DispatchQueue.global().asyncAfter(deadline: .now() + listingTimeout, execute: watchdog)
+
         let data = output.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
+        watchdog.cancel()
 
+        // A terminated child reports a non-zero status, so the timeout falls
+        // through to the filesystem fallback rather than to a partial listing.
         guard process.terminationStatus == 0, !data.isEmpty else { return nil }
         return data
     }

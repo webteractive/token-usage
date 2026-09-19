@@ -52,6 +52,8 @@ public struct ClaudeAccount: Equatable, Sendable {
     /// directory-flavoured URL from producing a different, silently wrong item.
     static func serviceSuffix(for directory: URL) -> String {
         let digest = SHA256.hash(data: Data(directory.path.utf8))
-        return digest.map { String(format: "%02x", $0) }.joined().prefix(8).lowercased()
+        // Four bytes are eight hex characters, which is the whole suffix.
+        // %02x is already lowercase, so no further casing is needed.
+        return digest.prefix(4).map { String(format: "%02x", $0) }.joined()
     }
 }

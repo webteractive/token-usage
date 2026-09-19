@@ -10,17 +10,12 @@ struct DropdownView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 10) {
-                    ForEach(model.sources, id: \.id) { source in
-                        sourceSection(source)
-                    }
-                }
+            // Deliberately not a ScrollView: this popover sizes itself to its
+            // content, so a ScrollView has no height to propose and collapses
+            // to a clipped sliver. Every account is listed in full instead.
+            ForEach(model.sources, id: \.id) { source in
+                sourceSection(source)
             }
-            // Enough for four accounts before scrolling, so a machine with many
-            // logins degrades to a scroll rather than a dropdown taller than
-            // the screen.
-            .frame(maxHeight: 360)
 
             if case .notInstalled = model.shimStatus {
                 Divider()
@@ -97,10 +92,8 @@ struct DropdownView: View {
         switch model.sourceStatus[id] {
         case .live:
             Text("live").font(.caption2).foregroundStyle(.secondary)
-        case .degraded(let how):
-            Text(how).font(.caption2).foregroundStyle(.orange)
-        case .unavailable(let why):
-            Text(why).font(.caption2).foregroundStyle(.orange)
+        case .degraded(let text), .unavailable(let text):
+            Text(text).font(.caption2).foregroundStyle(.orange)
         case nil:
             EmptyView()
         }

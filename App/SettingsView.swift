@@ -39,6 +39,12 @@ struct SettingsView: View {
                     Text(mode.title).tag(mode)
                 }
             }
+            Toggle("Hide accounts with no data", isOn: Binding(
+                get: { preferences.hidesEmptySources },
+                set: { preferences.hidesEmptySources = $0 }
+            ))
+            .help("An account that has never reported is left out of the menu bar. It still appears in the dropdown.")
+
             // Live preview, so the choice is made by seeing rather than reading.
             MenuBarLabelView(spec: model.labelSpec)
                 .padding(6)

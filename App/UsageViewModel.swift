@@ -72,6 +72,7 @@ final class UsageViewModel {
             sources: sources,
             mode: preferences.displayMode,
             thresholds: preferences.thresholds,
+            hidesEmptySources: preferences.hidesEmptySources,
             now: .now
         )
     }
@@ -103,8 +104,12 @@ final class UsageViewModel {
 
     func refresh() {
         shimStatus = installer.status()
-        rediscoverAccounts()
-        Task { await refreshClaude() }
+        // Discovery must settle before the accounts are fetched, so the two
+        // share a task rather than racing.
+        Task {
+            await rediscoverAccounts()
+            await refreshClaude()
+        }
         Task { await refreshCodex() }
     }
 
@@ -115,29 +120,29 @@ final class UsageViewModel {
     /// that host answers a plain client with a Cloudflare challenge.
     private func refreshCodex() async {
         guard shouldFetch(.codex) else { return }
-        lastFetch[SourceID.codex] = .now
+        lastFetch[.codex] = .now
 
         let fetched = await Task.detached { [codexAppServer] in
             try? codexAppServer.fetch()
         }.value
 
         if let fetched, !fetched.windows.isEmpty {
-            usage[SourceID.codex] = fetched
-            sourceStatus[SourceID.codex] = .live
+            usage[.codex] = fetched
+            sourceStatus[.codex] = .live
             return
         }
 
         if let fallback = codex.collect() {
-            usage[SourceID.codex] = fallback
-            sourceStatus[SourceID.codex] = .degraded("rollout file")
-        } else if usage[SourceID.codex]?.windows.isEmpty == false {
+            usage[.codex] = fallback
+            sourceStatus[.codex] = .degraded("rollout file")
+        } else if usage[.codex]?.windows.isEmpty == false {
             // Keep the last good reading rather than blanking the row over a
             // transient failure; its own staleness marking already tells the
             // truth about its age.
-            sourceStatus[SourceID.codex] = .degraded("last known")
+            sourceStatus[.codex] = .degraded("last known")
         } else {
-            usage[SourceID.codex] = .empty
-            sourceStatus[SourceID.codex] = .unavailable(
+            usage[.codex] = .empty
+            sourceStatus[.codex] = .unavailable(
                 CodexAppServerClient.locateBinary() == nil ? "Codex not installed" : "no data"
             )
         }
@@ -145,14 +150,16 @@ final class UsageViewModel {
 
     /// Rebuilds the source list only when the account set actually changed, so
     /// a steady state costs nothing and no Keychain item is re-read.
-    private func rediscoverAccounts() {
+    private func rediscoverAccounts() async {
         // A directory listing is cheap; discovery is a subprocess. Pay for the
         // second only when the first says something moved.
         let fingerprint = locator.fingerprint()
         guard fingerprint != accountsFingerprint || sources.isEmpty else { return }
         accountsFingerprint = fingerprint
 
-        let found = locator.discover()
+        // Off the main actor: discovery shells out to zetty, and a menu bar app
+        // that blocks on a child process is a menu bar app that stops redrawing.
+        let found = await Task.detached { [locator] in locator.discover() }.value
         guard found != accounts || sources.isEmpty else { return }
 
         accounts = found
@@ -198,14 +205,12 @@ final class UsageViewModel {
         guard let api = apis[id], shouldFetch(id) else { return }
         lastFetch[id] = .now
 
-        var reason = "unavailable"
+        let reason: String
         do {
             usage[id] = try await api.fetch()
             sourceStatus[id] = .live
             return
-        } catch ClaudeUsageAPIError.unauthorized {
-            reason = "sign-in expired — run claude"
-        } catch CredentialError.expired {
+        } catch ClaudeUsageAPIError.unauthorized, CredentialError.expired {
             reason = "sign-in expired — run claude"
         } catch CredentialError.notFound {
             reason = "not signed in"

@@ -9,13 +9,23 @@ public enum MenuBarLabelRenderer {
         sources: [SourceDescriptor],
         mode: DisplayMode,
         thresholds: Thresholds = .default,
+        /// Drops sources that have never reported from the per-source modes.
+        /// They stay in the dropdown, badge and all, so this hides noise rather
+        /// than information.
+        hidesEmptySources: Bool,
         now: Date
     ) -> LabelSpec {
         switch mode {
-        case .worstOf: renderWorstOf(usage, sources, thresholds, now)
-        case .perTool: renderPerTool(usage, sources, thresholds, now)
-        case .perAccount: renderPerSource(usage, sources, thresholds, now, windows: false)
-        case .full: renderPerSource(usage, sources, thresholds, now, windows: true)
+        case .worstOf:
+            renderWorstOf(usage, sources, thresholds, now)
+        case .perTool:
+            // Deliberately unfiltered: a whole vendor going quiet is worth
+            // saying out loud, unlike one login among several.
+            renderPerTool(usage, sources, thresholds, now)
+        case .perAccount:
+            renderPerSource(usage, sources, thresholds, now, windows: false, hiding: hidesEmptySources)
+        case .full:
+            renderPerSource(usage, sources, thresholds, now, windows: true, hiding: hidesEmptySources)
         }
     }
 
@@ -29,7 +39,7 @@ public enum MenuBarLabelRenderer {
     ) -> LabelSpec {
         let states = sources.compactMap { usage[$0.id]?.dominant(now: now) }.filter(\.hasData)
         guard let worst = states.max(by: { ($0.percent ?? 0) < ($1.percent ?? 0) }) else {
-            return [Segment(text: "—", severity: .normal, isStale: false, hasData: false)]
+            return [noData]
         }
         let severity = Severity.of(worst.percent ?? 0, thresholds)
         // The marker doubles as this mode's identity glyph, so it is always
@@ -70,9 +80,10 @@ public enum MenuBarLabelRenderer {
         _ sources: [SourceDescriptor],
         _ thresholds: Thresholds,
         _ now: Date,
-        windows: Bool
+        windows: Bool,
+        hiding: Bool
     ) -> LabelSpec {
-        sources.map { source in
+        let segments = sources.map { source in
             let provided = usage[source.id] ?? .empty
             let dominant = provided.dominant(now: now)
             let body = windows
@@ -81,6 +92,19 @@ public enum MenuBarLabelRenderer {
 
             return segment(label: source.shortLabel, state: dominant, body: body, thresholds)
         }
+
+        guard hiding else { return segments }
+
+        // An empty menu bar item would be invisible and unclickable, so a
+        // machine where nothing has reported still shows one em dash.
+        let reporting = segments.filter(\.hasData)
+        return reporting.isEmpty ? [noData] : reporting
+    }
+
+    /// The reading for "never reported". The em dash is load-bearing: it must
+    /// never be rendered as 0%.
+    private static var noData: Segment {
+        Segment(text: "—", severity: .normal, isStale: false, hasData: false)
     }
 
     // MARK: - Formatting
@@ -91,19 +115,17 @@ public enum MenuBarLabelRenderer {
         body: String?,
         _ thresholds: Thresholds
     ) -> Segment {
-        let severity = Severity.of(state.percent ?? 0, thresholds)
-        let text: String
-        if state.hasData {
-            let figures = body ?? state.percentLabel
-            text = "\(label) \(marker(severity))\(stalePrefix(state))\(figures)"
-        } else {
-            text = "\(label) —"
+        // Unwrapping once rather than reaching for a `?? 0` sentinel: a reading
+        // that never arrived has no severity, and must never read as 0%.
+        guard let percent = state.percent else {
+            return Segment(text: "\(label) —", severity: .normal, isStale: state.isStale, hasData: false)
         }
+        let severity = Severity.of(percent, thresholds)
         return Segment(
-            text: text,
-            severity: state.hasData ? severity : .normal,
+            text: "\(label) \(marker(severity))\(stalePrefix(state))\(body ?? state.percentLabel)",
+            severity: severity,
             isStale: state.isStale,
-            hasData: state.hasData
+            hasData: true
         )
     }
 

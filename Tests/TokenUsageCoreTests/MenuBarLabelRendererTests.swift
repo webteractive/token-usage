@@ -55,13 +55,15 @@ final class MenuBarLabelRendererTests: XCTestCase {
     private func render(
         _ mode: DisplayMode,
         _ u: [SourceID: ProviderUsage],
-        accounts: [ClaudeAccount]? = nil
+        accounts: [ClaudeAccount]? = nil,
+        hidingEmpty: Bool = false
     ) -> LabelSpec {
         MenuBarLabelRenderer.render(
             usage: u,
             sources: SourceCatalog.descriptors(claudeAccounts: accounts ?? soleAccount),
             mode: mode,
             thresholds: .default,
+            hidesEmptySources: hidingEmpty,
             now: now
         )
     }
@@ -208,5 +210,54 @@ final class MenuBarLabelRendererTests: XCTestCase {
     func testEveryWindowModeIsNamedForWhatItShows() {
         XCTAssertEqual(DisplayMode.full.title, "Every window")
         XCTAssertEqual(DisplayMode.perAccount.title, "One per account")
+    }
+
+    // MARK: - Hiding sources with nothing to report
+
+    /// An account that has never reported is noise in a space this small. The
+    /// dropdown still lists it, badge and all, so nothing is actually hidden.
+    func testHidesSourcesWithoutDataInPerAccount() {
+        var partial = multiAccountSample
+        partial[.claude("devops")] = .empty
+        let segs = render(.perAccount, partial, accounts: threeAccounts, hidingEmpty: true)
+
+        XCTAssertEqual(segs.map(\.text), ["G 47%", "W 12%", "X 3%"])
+    }
+
+    func testHidesSourcesWithoutDataInEveryWindow() {
+        var partial = multiAccountSample
+        partial[.claude("devops")] = .empty
+        let segs = render(.full, partial, accounts: threeAccounts, hidingEmpty: true)
+
+        XCTAssertEqual(segs.map(\.text), ["G 47/31", "W 12/8", "X 3/1"])
+    }
+
+    /// An empty menu bar item would be invisible and unclickable, so a machine
+    /// where nothing has reported still shows a single em dash.
+    func testShowsOneEmDashWhenNothingHasData() {
+        let empty: [SourceID: ProviderUsage] = [:]
+        let segs = render(.perAccount, empty, accounts: threeAccounts, hidingEmpty: true)
+
+        XCTAssertEqual(segs.map(\.text), ["—"])
+        XCTAssertFalse(segs[0].hasData)
+    }
+
+    /// Off, the em dash comes back: "never reported" stays visible for anyone
+    /// who wants to see it.
+    func testFilterOffKeepsSilentSources() {
+        var partial = multiAccountSample
+        partial[.claude("devops")] = .empty
+        let segs = render(.perAccount, partial, accounts: threeAccounts, hidingEmpty: false)
+
+        XCTAssertEqual(segs.map(\.text), ["G 47%", "D —", "W 12%", "X 3%"])
+    }
+
+    /// One per tool is untouched: a whole vendor going quiet is worth saying out
+    /// loud, unlike one login among several.
+    func testPerToolStillReportsASilentProvider() {
+        let u = usage(claude: .empty, codex: pair(session: window(3), weekly: nil))
+        let segs = render(.perTool, u, hidingEmpty: true)
+
+        XCTAssertEqual(segs.map(\.text), ["C —", "X 3%"])
     }
 }

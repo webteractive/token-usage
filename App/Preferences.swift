@@ -17,6 +17,12 @@ final class Preferences {
     var automaticallyChecksForUpdates: Bool {
         didSet { store(automaticallyChecksForUpdates, "automaticallyChecksForUpdates") }
     }
+    /// Drops accounts that have never reported from the menu bar. On by
+    /// default: in a space this small a row of em dashes is noise, and the
+    /// dropdown still lists every account with its badge.
+    var hidesEmptySources: Bool {
+        didSet { store(hidesEmptySources, "hidesEmptySources") }
+    }
 
     var thresholds: Thresholds {
         Thresholds(warning: warningThreshold, critical: criticalThreshold)
@@ -33,6 +39,7 @@ final class Preferences {
         self.automaticallyChecksForUpdates = defaults.object(
             forKey: "automaticallyChecksForUpdates"
         ) as? Bool ?? true
+        self.hidesEmptySources = defaults.object(forKey: "hidesEmptySources") as? Bool ?? true
     }
 
     private let defaults: UserDefaults

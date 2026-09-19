@@ -97,4 +97,20 @@ final class SourceDescriptorTests: XCTestCase {
         XCTAssertEqual(sources[1].keychainService, "Claude Code-credentials-81833aea")
         XCTAssertEqual(sources[1].id, SourceID.claude("warda"))
     }
+
+    /// Both clamps in the short-label loop are load-bearing: an empty names
+    /// array and an array of empty names are different inputs, and the second
+    /// would make the range 1...0 and trap.
+    func testAccountsWithEmptyNamesDoNotTrap() {
+        let blank = ClaudeAccount(
+            id: "",
+            directory: URL(fileURLWithPath: "/Users/example/.zetty/accounts/blank"),
+            displayName: ""
+        )
+        let sources = SourceCatalog.descriptors(claudeAccounts: [blank, blank])
+
+        XCTAssertEqual(sources.count, 3)
+        XCTAssertEqual(SourceCatalog.shortLabels(for: []), [])
+        XCTAssertEqual(SourceCatalog.shortLabels(for: ["", ""]).count, 2)
+    }
 }
