@@ -1,9 +1,9 @@
 import XCTest
 @testable import TokenUsageCore
 
-/// Covers the credential blob handling. The Keychain lookup itself is not
+/// Covers the credential blob handling. The `security` subprocess itself is not
 /// exercised here — it needs a real login keychain — but every branch that
-/// decides whether a token is usable is.
+/// decides whether its output or a token is usable is.
 final class KeychainCredentialsTests: XCTestCase {
 
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
@@ -43,6 +43,32 @@ final class KeychainCredentialsTests: XCTestCase {
             try KeychainCredentials.token(from: blob(token: "abc", expiresInHours: nil), now: now),
             "abc"
         )
+    }
+
+    func testSecurityOutputDropsTrailingNewline() throws {
+        let output = Data(#"{"claudeAiOauth":{"accessToken":"abc"}}"#.utf8) + Data("\n".utf8)
+        let data = try KeychainCredentials.itemData(fromSecurityOutput: output, status: 0)
+        XCTAssertEqual(String(decoding: data, as: UTF8.self), #"{"claudeAiOauth":{"accessToken":"abc"}}"#)
+    }
+
+    /// 44 is `errSecItemNotFound` as `security` reports it.
+    func testMissingItemIsNotFound() {
+        XCTAssertThrowsError(
+            try KeychainCredentials.itemData(fromSecurityOutput: Data(), status: 44)
+        ) { XCTAssertEqual($0 as? CredentialError, .notFound) }
+    }
+
+    /// A timed-out read is terminated, so it lands here too.
+    func testFailedReadIsNotFound() {
+        XCTAssertThrowsError(
+            try KeychainCredentials.itemData(fromSecurityOutput: Data("partial".utf8), status: 15)
+        ) { XCTAssertEqual($0 as? CredentialError, .notFound) }
+    }
+
+    func testEmptyOutputIsNotFound() {
+        XCTAssertThrowsError(
+            try KeychainCredentials.itemData(fromSecurityOutput: Data("\n".utf8), status: 0)
+        ) { XCTAssertEqual($0 as? CredentialError, .notFound) }
     }
 
     func testRepeatedAccessUsesOneKeychainRead() async throws {

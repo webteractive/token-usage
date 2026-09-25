@@ -56,8 +56,11 @@ appear automatically. Unknown kinds are preserved rather than dropped —
 silently discarding a limit is how you fail to warn someone about the one
 that is about to block them.
 
-Token handling: read from the Keychain once and cached only in process memory
-until expiry, never cached to disk and never written back. If the server rejects
+Token handling: read from the Keychain once, through `/usr/bin/security` rather
+than the Keychain API, and cached only in process memory until expiry, never
+cached to disk and never written back. Claude Code writes the item with
+`security`, so reading it the same way never prompts; reading it directly would
+ask again after every ad-hoc-signed build, even after "Always Allow". If the server rejects
 the cached token, the app rereads the Keychain and retries once. Claude Code
 continues to own token refresh; if the retry is also rejected, the app reports
 **"sign-in expired — run `claude`"**.

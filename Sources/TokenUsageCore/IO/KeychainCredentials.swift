@@ -1,5 +1,4 @@
 import Foundation
-import Security
 
 public enum CredentialError: Error, Equatable {
     case notFound
@@ -53,18 +52,50 @@ public actor KeychainCredentials {
     private let readData: @Sendable () throws -> Data
     private var cached: Credential?
 
-    private static func readKeychainData(service: String) throws -> Data {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
+    /// `security` normally answers at once. If it ever shows an access dialog
+    /// instead, a background refresh must give up rather than wait on a click.
+    static let readTimeout: TimeInterval = 5
 
-        var item: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
-              let data = item as? Data
-        else { throw CredentialError.notFound }
+    /// Read through `/usr/bin/security` rather than `SecItemCopyMatching`.
+    ///
+    /// Claude Code writes this item with the `security` tool, so the item's
+    /// access list already trusts it and the read never prompts. Reading it
+    /// from this app directly asks the user to allow access, and because the
+    /// builds are ad-hoc signed, every new build is a new app to the Keychain
+    /// and asks again, even after "Always Allow".
+    private static func readKeychainData(service: String) throws -> Data {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+        process.arguments = ["find-generic-password", "-s", service, "-w"]
+
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+
+        do { try process.run() } catch { throw CredentialError.notFound }
+
+        // Terminating the child closes the pipe, which is what releases the
+        // blocking read below — a timer around the read alone would not.
+        let watchdog = DispatchWorkItem {
+            if process.isRunning { process.terminate() }
+        }
+        DispatchQueue.global().asyncAfter(deadline: .now() + readTimeout, execute: watchdog)
+
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        watchdog.cancel()
+
+        return try itemData(fromSecurityOutput: data, status: process.terminationStatus)
+    }
+
+    /// Split out so the exit-status handling is testable without a Keychain.
+    /// `-w` prints the secret followed by a newline; any non-zero status —
+    /// a missing item, a denied read, a timed-out one — means no credential.
+    static func itemData(fromSecurityOutput output: Data, status: Int32) throws -> Data {
+        guard status == 0 else { throw CredentialError.notFound }
+        var data = output
+        while data.last == UInt8(ascii: "\n") { data.removeLast() }
+        guard !data.isEmpty else { throw CredentialError.notFound }
         return data
     }
 
