@@ -28,9 +28,17 @@ public struct CodexAppServerClient: Sendable {
     ]
 
     private let timeout: TimeInterval
+    private let killGrace: TimeInterval
+    private let locate: @Sendable () -> String?
 
     public init(timeout: TimeInterval = 20) {
+        self.init(timeout: timeout, killGrace: Subprocess.killGrace, locate: Self.locateBinary)
+    }
+
+    init(timeout: TimeInterval, killGrace: TimeInterval, locate: @escaping @Sendable () -> String?) {
         self.timeout = timeout
+        self.killGrace = killGrace
+        self.locate = locate
     }
 
     public static func locateBinary() -> String? {
@@ -38,7 +46,7 @@ public struct CodexAppServerClient: Sendable {
     }
 
     public func fetch(now: Date = .now) throws -> ProviderUsage {
-        guard let binary = Self.locateBinary() else { throw CodexAppServerError.binaryNotFound }
+        guard let binary = locate() else { throw CodexAppServerError.binaryNotFound }
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: binary)
@@ -47,11 +55,18 @@ public struct CodexAppServerClient: Sendable {
         let input = Pipe(), output = Pipe()
         process.standardInput = input
         process.standardOutput = output
-        process.standardError = Pipe()
+        process.standardError = FileHandle.nullDevice
+        defer {
+            Subprocess.close(input)
+            Subprocess.close(output)
+        }
 
         do { try process.run() } catch {
             throw CodexAppServerError.launchFailed(error.localizedDescription)
         }
+        // Runs before the pipes are closed, on every path out of here. Without
+        // it a server that never answers, or ignores SIGTERM, outlives the call.
+        defer { Subprocess.stop(process, killGrace: killGrace) }
 
         // The protocol requires an initialize handshake before any other call.
         let requests = [
@@ -59,42 +74,28 @@ public struct CodexAppServerClient: Sendable {
             #"{"jsonrpc":"2.0","id":1,"method":"account/rateLimits/read","params":{}}"#,
         ].joined(separator: "\n") + "\n"
 
-        input.fileHandleForWriting.write(Data(requests.utf8))
+        // A server that died on launch leaves a pipe with no reader; that must
+        // surface as an error here, not as SIGPIPE taking the app down.
+        _ = fcntl(input.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
+        do { try input.fileHandleForWriting.write(contentsOf: Data(requests.utf8)) } catch {
+            throw CodexAppServerError.noResponse
+        }
 
         // stdin stays open until the answer arrives: the server treats EOF as
         // "client is done" and exits, which is why closing it here returned
         // nothing at all.
-        let data = try read(from: output, process: process)
-        try? input.fileHandleForWriting.close()
-        if process.isRunning { process.terminate() }
+        //
+        // The server interleaves unsolicited notifications, so waiting for
+        // "some output" is not enough — it has to be that specific id.
+        let data = Subprocess.read(
+            from: output.fileHandleForReading,
+            until: Date().addingTimeInterval(timeout)
+        ) { Self.result(id: 1, in: $0) != nil }
 
         guard let result = Self.result(id: 1, in: data) else {
             throw CodexAppServerError.noResponse
         }
         return try CodexAppServerParser.parse(result, observedAt: now)
-    }
-
-    /// Reads until the response to the rate-limits request arrives. The server
-    /// interleaves unsolicited notifications, so waiting for "some output" is
-    /// not enough — it has to be that specific id.
-    private func read(from pipe: Pipe, process: Process) throws -> Data {
-        let handle = pipe.fileHandleForReading
-        var buffer = Data()
-        let deadline = Date().addingTimeInterval(timeout)
-
-        while Date() < deadline {
-            let chunk = handle.availableData
-            if chunk.isEmpty {
-                guard process.isRunning else { break }
-                // availableData returns immediately when the pipe is empty, so
-                // without this the loop burns a core until the deadline.
-                Thread.sleep(forTimeInterval: 0.05)
-                continue
-            }
-            buffer.append(chunk)
-            if Self.result(id: 1, in: buffer) != nil { return buffer }
-        }
-        return buffer
     }
 
     /// Pulls one JSON-RPC response out of newline-delimited output.

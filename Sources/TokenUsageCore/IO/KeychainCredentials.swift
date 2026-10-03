@@ -64,28 +64,13 @@ public actor KeychainCredentials {
     /// builds are ad-hoc signed, every new build is a new app to the Keychain
     /// and asks again, even after "Always Allow".
     private static func readKeychainData(service: String) throws -> Data {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
-        process.arguments = ["find-generic-password", "-s", service, "-w"]
+        guard let result = Subprocess.capture(
+            "/usr/bin/security",
+            arguments: ["find-generic-password", "-s", service, "-w"],
+            timeout: readTimeout
+        ) else { throw CredentialError.notFound }
 
-        let output = Pipe()
-        process.standardOutput = output
-        process.standardError = FileHandle.nullDevice
-
-        do { try process.run() } catch { throw CredentialError.notFound }
-
-        // Terminating the child closes the pipe, which is what releases the
-        // blocking read below — a timer around the read alone would not.
-        let watchdog = DispatchWorkItem {
-            if process.isRunning { process.terminate() }
-        }
-        DispatchQueue.global().asyncAfter(deadline: .now() + readTimeout, execute: watchdog)
-
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        watchdog.cancel()
-
-        return try itemData(fromSecurityOutput: data, status: process.terminationStatus)
+        return try itemData(fromSecurityOutput: result.output, status: result.status)
     }
 
     /// Split out so the exit-status handling is testable without a Keychain.
