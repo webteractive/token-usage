@@ -180,8 +180,9 @@ so Token Usage ships outside the App Store through
 [GitHub Releases](https://github.com/webteractive/token-usage/releases).
 
 Download `TokenUsage-<version>.dmg`, open it, and drag **TokenUsage** into
-Applications. Current builds are ad-hoc signed rather than Developer ID signed,
-so a fresh download may need its quarantine attribute removed once:
+Applications. Builds are Developer ID signed and notarized, so the download opens
+without a Gatekeeper prompt. v0.1.4 was the last ad-hoc signed release; a fresh
+download of it or anything earlier may need its quarantine attribute removed once:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/TokenUsage.app

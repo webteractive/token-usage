@@ -48,6 +48,7 @@ done
 command -v gh >/dev/null 2>&1 || die "gh (GitHub CLI) is required"
 gh auth status >/dev/null 2>&1 || die "gh is not authenticated — run: gh auth login"
 [ -z "$(git status --porcelain)" ] || die "working tree is dirty — commit or stash first"
+./scripts/package.sh --preflight || die "signing prerequisites missing — not releasing"
 
 current_branch=$(git rev-parse --abbrev-ref HEAD)
 [ "$current_branch" = "$BRANCH" ] || die "on branch '$current_branch', expected '$BRANCH'"
