@@ -60,7 +60,8 @@ Token handling: read from the Keychain once, through `/usr/bin/security` rather
 than the Keychain API, and cached only in process memory until expiry, never
 cached to disk and never written back. Claude Code writes the item with
 `security`, so reading it the same way never prompts; reading it directly would
-ask again after every ad-hoc-signed build, even after "Always Allow". If the server rejects
+ask for access, and an ad-hoc-signed development build would ask again after
+every rebuild, even after "Always Allow". If the server rejects
 the cached token, the app rereads the Keychain and retries once. Claude Code
 continues to own token refresh; if the retry is also rejected, the app reports
 **"sign-in expired — run `claude`"**.
@@ -208,6 +209,21 @@ notes and a clean `main`, runs the test suite, bumps the version in
 `Project.swift`, packages `TokenUsage-<version>.dmg` and its checksum sidecar,
 tags the release, and uploads both assets. The sidecar is required by the in-app
 updater, so releases should not be assembled manually.
+
+Packaging signs the app with the hardened runtime, notarizes and staples it,
+then signs, notarizes and staples the DMG around it. The release machine needs
+two things for that, both in the keychain and neither in this repo: a
+`Developer ID Application` certificate, and a notarytool profile named `notary`,
+created once with `xcrun notarytool store-credentials notary`.
+`scripts/package.sh --preflight` checks both without building, and `release.sh`
+runs it before the version bump, so a signing problem stops the release before
+anything is pushed. Set `TOKEN_USAGE_SIGN_IDENTITY` (a name or SHA-1 hash) when
+the keychain holds more than one such certificate, and
+`TOKEN_USAGE_NOTARY_PROFILE` to use a profile with another name.
+
+On a machine without the certificate, `scripts/package.sh --adhoc` packages an
+ad-hoc signed DMG that is not notarized. It is for local testing only and must
+not be shipped.
 
 ## Privacy
 
