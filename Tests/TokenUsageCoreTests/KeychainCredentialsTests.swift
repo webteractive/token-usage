@@ -71,6 +71,37 @@ final class KeychainCredentialsTests: XCTestCase {
         ) { XCTAssertEqual($0 as? CredentialError, .notFound) }
     }
 
+    /// Claude Code names the item's account after `$USER`, or "unknown" when it
+    /// is unset. A process without `$USER` therefore leaves a second item under
+    /// the same service holding only MCP tokens, and a lookup by service alone
+    /// can return that one instead of the login.
+    func testReadsTheCurrentUsersItemFirst() throws {
+        var calls: [[String]] = []
+        let data = try KeychainCredentials.readItem(service: "svc", user: "glen") { arguments in
+            calls.append(arguments)
+            return (Data("login".utf8), 0)
+        }
+        XCTAssertEqual(String(decoding: data, as: UTF8.self), "login")
+        XCTAssertEqual(calls, [["find-generic-password", "-s", "svc", "-a", "glen", "-w"]])
+    }
+
+    /// An item written under some other account name is still found.
+    func testFallsBackToAnyItemForTheService() throws {
+        var calls: [[String]] = []
+        let data = try KeychainCredentials.readItem(service: "svc", user: "glen") { arguments in
+            calls.append(arguments)
+            return arguments.contains("-a") ? (Data(), 44) : (Data("other".utf8), 0)
+        }
+        XCTAssertEqual(String(decoding: data, as: UTF8.self), "other")
+        XCTAssertEqual(calls.last, ["find-generic-password", "-s", "svc", "-w"])
+    }
+
+    func testNoItemAtAllIsNotFound() {
+        XCTAssertThrowsError(
+            try KeychainCredentials.readItem(service: "svc", user: "glen") { _ in (Data(), 44) }
+        ) { XCTAssertEqual($0 as? CredentialError, .notFound) }
+    }
+
     func testRepeatedAccessUsesOneKeychainRead() async throws {
         let source = CredentialDataSource([blob(token: "abc", expiresInHours: 3)])
         let credentials = KeychainCredentials(readData: source.read)

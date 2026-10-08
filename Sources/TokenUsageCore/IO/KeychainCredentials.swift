@@ -64,13 +64,31 @@ public actor KeychainCredentials {
     /// builds are ad-hoc signed, every new build is a new app to the Keychain
     /// and asks again, even after "Always Allow".
     private static func readKeychainData(service: String) throws -> Data {
-        guard let result = Subprocess.capture(
-            "/usr/bin/security",
-            arguments: ["find-generic-password", "-s", service, "-w"],
-            timeout: readTimeout
-        ) else { throw CredentialError.notFound }
+        try readItem(service: service, user: NSUserName()) { arguments in
+            Subprocess.capture("/usr/bin/security", arguments: arguments, timeout: readTimeout)
+                .map { ($0.output, $0.status) }
+        }
+    }
 
-        return try itemData(fromSecurityOutput: result.output, status: result.status)
+    /// Claude Code names each item's account after `$USER`, falling back to
+    /// "unknown" when it is unset. A process started without `$USER` leaves a
+    /// second item under the same service holding only MCP tokens, and a lookup
+    /// by service alone may return that one. The current user's item is the
+    /// login, so it is asked for first; any item for the service is the
+    /// fallback, for a login written under some other account name.
+    static func readItem(
+        service: String,
+        user: String,
+        run: ([String]) -> (output: Data, status: Int32)?
+    ) throws -> Data {
+        let lookups = [["-s", service, "-a", user], ["-s", service]]
+        for lookup in lookups {
+            guard let result = run(["find-generic-password"] + lookup + ["-w"]) else { continue }
+            if let data = try? itemData(fromSecurityOutput: result.output, status: result.status) {
+                return data
+            }
+        }
+        throw CredentialError.notFound
     }
 
     /// Split out so the exit-status handling is testable without a Keychain.

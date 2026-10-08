@@ -66,6 +66,12 @@ the cached token, the app rereads the Keychain and retries once. Claude Code
 continues to own token refresh; if the retry is also rejected, the app reports
 **"sign-in expired — run `claude`"**.
 
+Claude Code names each item's account after `$USER`, or `unknown` when it is
+unset, so a process started without `$USER` leaves a second item under the same
+service that holds only MCP tokens. The app asks for the current user's item
+first and falls back to any item for the service, so that stray item cannot
+shadow the login.
+
 The endpoint is undocumented. If it changes shape or disappears, the app says
 so and falls back — it never shows a number it cannot justify.
 
@@ -84,9 +90,13 @@ config directory path>` for the rest. An account is therefore the same usage API
 pointed at a different item — no new endpoint, no new parser.
 
 macOS asks once per account before this app may read its item. The statusline
-fallback below covers the **default account only** — the shim lives in
-`~/.claude/settings.json` and sees nothing else — so a non-default account whose
-API call fails reports "last known" or "unavailable" rather than falling back.
+fallback below covers the **default account only**, so a non-default account
+whose API call fails reports "last known" or "unavailable" rather than falling
+back. The shim is installed into `~/.claude/settings.json`, but a zetty account
+whose `settings.json` was copied from there runs it too and writes the same
+file. A capture is therefore accepted only when its `transcript_path` lies
+inside `~/.claude`, so another login's quota is never shown under the default
+account's name.
 
 **Claude — the statusline fallback.** Optional and off by default. A shim
 installed as your `statusLine.command` captures the payload Claude Code passes

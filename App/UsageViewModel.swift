@@ -198,8 +198,8 @@ final class UsageViewModel {
     /// The API is preferred because it is complete — it carries scoped weekly
     /// limits the statusline never sends — and because it is live rather than
     /// only arriving while a session happens to be running. The statusline
-    /// capture stays as a fallback, but it covers the default account only: the
-    /// shim is installed into ~/.claude/settings.json and sees nothing else.
+    /// capture stays as a fallback for the default account only. Other logins can
+    /// run the shim too, so the parser drops any capture they wrote.
     private func refreshClaudeAccount(_ account: ClaudeAccount) async {
         let id = SourceID.claude(account.id)
         guard let api = apis[id], shouldFetch(id) else { return }
@@ -212,7 +212,8 @@ final class UsageViewModel {
             return
         } catch ClaudeUsageAPIError.unauthorized, CredentialError.expired {
             reason = "sign-in expired — run claude"
-        } catch CredentialError.notFound {
+        } catch CredentialError.notFound, CredentialError.malformed {
+            // An item holding only MCP tokens has no Claude login in it.
             reason = "not signed in"
         } catch ClaudeUsageAPIError.http(429) {
             // The usage endpoint rate-limits its own callers. Backing off and
@@ -242,6 +243,10 @@ final class UsageViewModel {
         guard let result = try? store.read(paths.claudeRawState) else { return nil }
         // The statusline payload carries no timestamp, so the file's own
         // modification date is when the reading was produced.
-        return try? ClaudeStatuslineParser.parse(result.data, observedAt: result.modifiedAt)
+        return try? ClaudeStatuslineParser.parse(
+            result.data,
+            observedAt: result.modifiedAt,
+            configDirectory: paths.claudeDirectory
+        )
     }
 }
