@@ -146,6 +146,78 @@ final class ClaudeAccountLocatorTests: XCTestCase {
         XCTAssertEqual(accounts.last?.label, "Fresh")
     }
 
+    // MARK: - Owners
+
+    private var tinkerConfig: URL {
+        home.appendingPathComponent("Library/Application Support/Tinker/claude/.claude.json")
+    }
+
+    func testMarksWhichToolEachLoginBelongsTo() throws {
+        try write(configJSON(email: "t@example.com", name: "Tess", org: "Example Co"), to: tinkerConfig)
+        let json = """
+        {"accounts":[{"agent":"claude","directory":"~/.zetty/accounts/warda","id":"warda","name":"Warda"}],
+        "defaultDirectory":"~/.claude"}
+        """
+        let accounts = locator(zetty: Data(json.utf8)).discover()
+
+        XCTAssertEqual(accounts.map(\.id), ["default", "warda", "tinker"])
+        XCTAssertEqual(accounts.map(\.owner), [.claudeCode, .zetty, .tinker])
+    }
+
+    func testFallbackScanMarksZettyAccounts() throws {
+        try write(
+            configJSON(email: "warda@example.com", name: "Warda", org: "Example Co"),
+            to: home.appendingPathComponent(".zetty/accounts/warda/.claude.json")
+        )
+
+        XCTAssertEqual(locator(zetty: nil).discover().map(\.owner), [.claudeCode, .zetty])
+    }
+
+    /// Tinker keeps a Claude login in a config directory of its own, which
+    /// neither zetty nor the default scan knows about.
+    func testFindsTinkersLoginAndItsIdentity() throws {
+        try write(configJSON(email: "t@example.com", name: "Tess", org: "Example Co"), to: tinkerConfig)
+
+        let tinker = try XCTUnwrap(locator(zetty: nil).discover().last)
+
+        XCTAssertEqual(tinker.id, "tinker")
+        XCTAssertEqual(tinker.directory.path, tinkerConfig.deletingLastPathComponent().path)
+        XCTAssertEqual(tinker.displayName, "Tess")
+        XCTAssertEqual(tinker.email, "t@example.com")
+        XCTAssertNotEqual(tinker.keychainService, ClaudeAccount.defaultKeychainService)
+    }
+
+    /// Tinker installed but never signed in has no login to report on.
+    func testNoTinkerLoginWithoutItsConfig() throws {
+        try FileManager.default.createDirectory(
+            at: tinkerConfig.deletingLastPathComponent(), withIntermediateDirectories: true
+        )
+
+        XCTAssertEqual(locator(zetty: nil).discover().map(\.id), ["default"])
+    }
+
+    /// An id names a row, so two logins cannot share one.
+    func testZettyAccountNamedTinkerKeepsTheName() throws {
+        try write(configJSON(email: "t@example.com", name: "Tess", org: "Example Co"), to: tinkerConfig)
+        let json = """
+        {"accounts":[{"agent":"claude","directory":"~/.zetty/accounts/tinker","id":"tinker","name":"Mine"}],
+        "defaultDirectory":"~/.claude"}
+        """
+        let accounts = locator(zetty: Data(json.utf8)).discover()
+
+        XCTAssertEqual(accounts.map(\.id), ["default", "tinker"])
+        XCTAssertEqual(accounts.last?.owner, .zetty)
+    }
+
+    func testFingerprintMovesWhenTinkerSignsIn() throws {
+        let subject = locator(zetty: nil)
+        let before = subject.fingerprint()
+
+        try write(configJSON(email: "t@example.com", name: "Tess", org: "Example Co"), to: tinkerConfig)
+
+        XCTAssertNotEqual(subject.fingerprint(), before)
+    }
+
     // MARK: - Cadence
 
     /// Full discovery spawns a subprocess, so callers need a cheap way to ask

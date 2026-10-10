@@ -11,15 +11,16 @@ final class UsageViewModel {
     /// The ordered render list, rebuilt only when the set of accounts changes.
     private(set) var sources: [SourceDescriptor] = []
     /// How each source's figures were obtained, so the UI can be honest about
-    /// it. Both providers have a live source and a degraded fallback, so they
+    /// it. Both providers have a complete source and a partial one, so they
     /// share one type rather than two near-identical ones.
     private(set) var sourceStatus: [SourceID: SourceStatus] = [:]
 
     enum SourceStatus: Equatable {
         /// Complete and current.
         case live
-        /// Working, but from the fallback — fewer windows, possibly stale.
-        case degraded(String)
+        /// Working, but not from every source — fewer windows, possibly stale.
+        /// `detail` says what is missing and why.
+        case degraded(String, detail: String? = nil)
         /// Nothing usable, with the reason.
         case unavailable(String)
     }
@@ -38,16 +39,24 @@ final class UsageViewModel {
     /// account, every minute — and undo the fix in 74e9bbb.
     private var apis: [SourceID: ClaudeUsageAPI] = [:]
     private var accounts: [ClaudeAccount] = []
+    private let captures: ClaudeSessionCaptures
+    /// The last complete answer the API gave for each login. Kept between
+    /// polls because it is the only source of the scoped weekly limits.
+    private var apiReadings: [SourceID: ProviderUsage] = [:]
+    /// Why the API has nothing newer for a login. Absent once it answers.
+    private var apiFailures: [SourceID: String] = [:]
+    /// One per login, because the endpoint throttles each token on its own.
+    private var schedules: [SourceID: PollSchedule] = [:]
     private let codexAppServer: CodexAppServerClient
     private let preferences: Preferences
 
     private var watcher: FileWatcher?
     private var ticker: Timer?
 
-    /// Live sources are expensive and rate-limited: the Claude usage endpoint
-    /// answers 429 if polled hard, and each Codex read spawns a process. Both
-    /// are triggered by FSEvents, which fires repeatedly during active work, so
-    /// they are throttled and the previous reading is kept in between.
+    /// Each Codex read spawns a process, and refreshes are triggered by
+    /// FSEvents, which fires repeatedly during active work, so reads are
+    /// throttled and the previous reading is kept in between. The Claude usage
+    /// endpoint needs far more room than this and has `PollSchedule` instead.
     private var lastFetch: [SourceID: Date] = [:]
     private static let minimumFetchInterval: TimeInterval = 60
 
@@ -63,6 +72,7 @@ final class UsageViewModel {
         self.codex = CodexCollector(paths: paths)
         self.installer = ShimInstaller(paths: paths)
         self.locator = ClaudeAccountLocator(paths: paths)
+        self.captures = ClaudeSessionCaptures(directory: paths.claudeSessions)
         self.codexAppServer = CodexAppServerClient()
     }
 
@@ -78,6 +88,10 @@ final class UsageViewModel {
     }
 
     func start() {
+        // An update can ship a new shim. Sessions run whatever is on disk, so
+        // the installed copy has to follow the app rather than wait for a
+        // reinstall nobody knows to do.
+        _ = try? installer.refreshScript()
         refresh()
 
         watcher = FileWatcher(
@@ -181,72 +195,94 @@ final class UsageViewModel {
         usage = usage.filter { live.contains($0.key) }
         sourceStatus = sourceStatus.filter { live.contains($0.key) }
         lastFetch = lastFetch.filter { live.contains($0.key) }
+        schedules = schedules.filter { live.contains($0.key) }
+        apiReadings = apiReadings.filter { live.contains($0.key) }
+        apiFailures = apiFailures.filter { live.contains($0.key) }
     }
 
+    /// Session captures come first: they cost nothing, cannot be throttled,
+    /// and move with every request a session makes. The API is asked far less
+    /// often, for the scoped weekly limits no statusline carries and for
+    /// logins with no session open.
     private func refreshClaude() async {
-        // Separate logins have separate server-side limits, so they are fetched
-        // concurrently and throttled independently.
+        publishClaude()
+
+        // Each login is its own account as far as this app is concerned, with
+        // its own token and its own throttle, so they are polled independently.
+        let now = Date.now
         await withTaskGroup(of: Void.self) { group in
             for account in accounts {
                 group.addTask { @MainActor [weak self] in
-                    await self?.refreshClaudeAccount(account)
+                    await self?.pollAPI(account, now: now)
                 }
             }
         }
+        publishClaude()
     }
 
-    /// The API is preferred because it is complete — it carries scoped weekly
-    /// limits the statusline never sends — and because it is live rather than
-    /// only arriving while a session happens to be running. The statusline
-    /// capture stays as a fallback for the default account only. Other logins can
-    /// run the shim too, so the parser drops any capture they wrote.
-    private func refreshClaudeAccount(_ account: ClaudeAccount) async {
+    private func pollAPI(_ account: ClaudeAccount, now: Date) async {
         let id = SourceID.claude(account.id)
-        guard let api = apis[id], shouldFetch(id) else { return }
-        lastFetch[id] = .now
+        guard let api = apis[id], schedules[id, default: PollSchedule()].isDue(now: now) else { return }
+        schedules[id, default: PollSchedule()].began(now: now)
 
-        let reason: String
         do {
-            usage[id] = try await api.fetch()
-            sourceStatus[id] = .live
-            return
+            apiReadings[id] = try await api.fetch()
+            apiFailures[id] = nil
+            schedules[id]?.succeeded()
+        } catch ClaudeUsageAPIError.rateLimited(let retryAfter) {
+            schedules[id]?.refused(now: now, retryAfter: retryAfter)
+            apiFailures[id] = "rate limited — retrying later"
         } catch ClaudeUsageAPIError.unauthorized, CredentialError.expired {
-            reason = "sign-in expired — run claude"
+            apiFailures[id] = "sign-in expired — \(account.owner == .tinker ? "open Tinker" : "run claude")"
         } catch CredentialError.notFound, CredentialError.malformed {
             // An item holding only MCP tokens has no Claude login in it.
-            reason = "not signed in"
-        } catch ClaudeUsageAPIError.http(429) {
-            // The usage endpoint rate-limits its own callers. Backing off and
-            // keeping the last reading beats thrashing it.
-            reason = "rate limited — retrying shortly"
+            apiFailures[id] = "not signed in"
         } catch {
-            reason = "usage API unavailable"
+            apiFailures[id] = "usage API unavailable"
         }
+    }
 
-        // The statusline capture carries only two windows, so a partial view is
-        // never presented as if it were the whole picture.
-        if account.isDefault, let fallback = readClaude() {
-            usage[id] = fallback
-            sourceStatus[id] = .degraded("statusline · partial")
-        } else if usage[id]?.windows.isEmpty == false {
-            sourceStatus[id] = .degraded("last known")
-        } else {
-            usage[id] = .empty
-            sourceStatus[id] = .unavailable(reason)
+    /// Rebuilds every Claude row from what is on disk and what the API last
+    /// said for that login.
+    private func publishClaude() {
+        captures.reload()
+
+        for account in accounts {
+            let id = SourceID.claude(account.id)
+            let local = localUsage(account)
+            let merged = ProviderUsage.merged([local] + [apiReadings[id]].compactMap { $0 })
+
+            let status: SourceStatus?
+            if let reason = apiFailures[id] {
+                // The statusline carries only two windows, so a partial view
+                // is never presented as if it were the whole picture.
+                if !local.windows.isEmpty {
+                    status = .degraded("statusline only", detail: "Usage API: \(reason)")
+                } else if !merged.windows.isEmpty {
+                    status = .degraded("last known", detail: "Usage API: \(reason)")
+                } else {
+                    status = .unavailable(reason)
+                }
+            } else {
+                // Before the first answer there is nothing to claim either way.
+                status = apiReadings[id] == nil ? nil : .live
+            }
+
+            // Assigning an equal value still redraws the menu bar.
+            if usage[id] != merged { usage[id] = merged }
+            if sourceStatus[id] != status { sourceStatus[id] = status }
         }
+    }
+
+    /// What a login's own sessions last reported. Tinker's sessions run its
+    /// statusline rather than the shim, so its snapshot file stands in for
+    /// their captures.
+    private func localUsage(_ account: ClaudeAccount) -> ProviderUsage {
+        guard account.owner == .tinker else { return captures.usage(for: account.directory) }
+        guard let file = try? store.read(paths.tinkerUsage) else { return .empty }
+        return (try? TinkerUsageParser.parse(file.data, modifiedAt: file.modifiedAt)) ?? .empty
     }
 
     func installShim() throws { try installer.install(); refresh() }
     func uninstallShim() throws { try installer.uninstall(); refresh() }
-
-    private func readClaude() -> ProviderUsage? {
-        guard let result = try? store.read(paths.claudeRawState) else { return nil }
-        // The statusline payload carries no timestamp, so the file's own
-        // modification date is when the reading was produced.
-        return try? ClaudeStatuslineParser.parse(
-            result.data,
-            observedAt: result.modifiedAt,
-            configDirectory: paths.claudeDirectory
-        )
-    }
 }

@@ -28,18 +28,36 @@ public struct SourceDescriptor: Equatable, Sendable {
     public let id: SourceID
     public let displayName: String
     public let shortLabel: String
+    /// The heading this row is listed under: the tool whose login it is.
+    public let section: String
     /// `nil` for providers this app holds no credential for.
     public let keychainService: String?
 
-    public init(id: SourceID, displayName: String, shortLabel: String, keychainService: String?) {
+    public init(
+        id: SourceID,
+        displayName: String,
+        shortLabel: String,
+        section: String = SourceCatalog.defaultSection,
+        keychainService: String?
+    ) {
         self.id = id
         self.displayName = displayName
         self.shortLabel = shortLabel
+        self.section = section
         self.keychainService = keychainService
     }
 }
 
+/// The rows listed under one heading in the dropdown.
+public struct SourceSection: Equatable, Sendable {
+    public let title: String
+    public let sources: [SourceDescriptor]
+}
+
 public enum SourceCatalog {
+
+    /// Where the tools' own logins go: the plain Claude Code one, and Codex.
+    public static let defaultSection = "Default"
 
     /// Builds the ordered render list: Claude accounts in the order given, then
     /// Codex. Never ordered by percentage — the menu bar must not reshuffle as
@@ -51,12 +69,15 @@ public enum SourceCatalog {
         let claude = zip(claudeAccounts, labels).map { account, label in
             SourceDescriptor(
                 id: .claude(account.id),
-                // With one login there is nothing to disambiguate, so the app
-                // reads exactly as it did before accounts existed.
-                displayName: single
+                // The heading already says whose login it is, so under
+                // "Default" the row is the product and elsewhere the account.
+                displayName: account.owner == .claudeCode
                     ? Provider.claude.displayName
-                    : "\(Provider.claude.displayName) · \(account.label)",
+                    : account.label,
+                // With one login there is nothing to disambiguate, so the menu
+                // bar reads exactly as it did before accounts existed.
                 shortLabel: single ? Provider.claude.shortLabel : label,
+                section: account.owner.sectionTitle,
                 keychainService: account.keychainService
             )
         }
@@ -69,6 +90,20 @@ public enum SourceCatalog {
                 keychainService: nil
             )
         ]
+    }
+
+    /// Groups rows under their headings for the dropdown. Headings keep the
+    /// order they first appear in and rows keep theirs within a heading, so
+    /// Codex joins the default Claude login without moving in the menu bar,
+    /// where it stays last.
+    public static func sections(_ sources: [SourceDescriptor]) -> [SourceSection] {
+        var titles: [String] = []
+        for source in sources where !titles.contains(source.section) {
+            titles.append(source.section)
+        }
+        return titles.map { title in
+            SourceSection(title: title, sources: sources.filter { $0.section == title })
+        }
     }
 
     /// The shortest uppercase prefix that tells these names apart. Uniqueness is

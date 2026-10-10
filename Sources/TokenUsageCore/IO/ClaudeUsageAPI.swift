@@ -4,6 +4,9 @@ public enum ClaudeUsageAPIError: Error, Equatable {
     /// The token was rejected. Claude Code refreshes it during normal use, so
     /// the remedy is to use Claude Code — not for this app to re-authenticate.
     case unauthorized
+    /// The endpoint is throttling this token. Carries its `Retry-After` hint
+    /// when that says anything.
+    case rateLimited(retryAfter: TimeInterval?)
     case http(Int)
     case transport(String)
 }
@@ -11,8 +14,8 @@ public enum ClaudeUsageAPIError: Error, Equatable {
 /// Fetches the complete quota picture from Claude's OAuth usage endpoint.
 ///
 /// This endpoint is undocumented, so every failure is reported rather than
-/// guessed around: if it changes shape or disappears, the app says so and falls
-/// back to the statusline source instead of showing a number it cannot justify.
+/// guessed around: if it changes shape or disappears, the app says so and shows
+/// what the statusline captures carry instead of a number it cannot justify.
 public struct ClaudeUsageAPI: Sendable {
 
     public static let endpoint = URL(string: "https://api.anthropic.com/api/oauth/usage")!
@@ -66,6 +69,14 @@ public struct ClaudeUsageAPI: Sendable {
         }
         guard http.statusCode != 401, http.statusCode != 403 else {
             throw ClaudeUsageAPIError.unauthorized
+        }
+        guard http.statusCode != 429 else {
+            // The endpoint sends `retry-after: 0` while it goes on refusing,
+            // so only a positive value is passed on as a hint.
+            let hint = http.value(forHTTPHeaderField: "Retry-After")
+                .flatMap(TimeInterval.init)
+                .flatMap { $0 > 0 ? $0 : nil }
+            throw ClaudeUsageAPIError.rateLimited(retryAfter: hint)
         }
         guard (200..<300).contains(http.statusCode) else {
             throw ClaudeUsageAPIError.http(http.statusCode)

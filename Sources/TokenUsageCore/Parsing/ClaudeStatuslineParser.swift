@@ -25,27 +25,63 @@ public enum ClaudeStatuslineParser {
 
     /// - Parameter observedAt: when the payload was written (the state file's
     ///   modification date). The statusline payload carries no timestamp of its
-    ///   own, so freshness is judged by when it landed on disk.
+    ///   own, and the shim rewrites a session's file only when the API has
+    ///   answered again, so the date on disk is the date of the reading.
     /// - Parameter configDirectory: the Claude config directory the reading is
     ///   for. Any login whose settings point at the shim writes the same file —
     ///   a zetty account created by copying `~/.claude/settings.json` does — so
     ///   a payload is accepted only when its transcript lives inside this
     ///   directory, and one that cannot be attributed is not accepted at all.
     public static func parse(_ data: Data, observedAt: Date, configDirectory: URL) throws -> ProviderUsage {
-        let payload = try JSONDecoder().decode(Payload.self, from: data)
-        guard let transcript = payload.transcript_path,
-              isPath(transcript, inside: configDirectory)
-        else { throw ParseError.otherAccount }
+        let capture = try capture(data, observedAt: observedAt)
+        guard capture.isInside(root(of: configDirectory)) else { throw ParseError.otherAccount }
+        return capture.usage
+    }
 
-        guard let limits = payload.rate_limits else {
+    /// One session's payload, decoded but not yet attributed to a login. The
+    /// two are kept apart so a directory holding every session's capture can be
+    /// decoded once and then asked about each login in turn.
+    public struct Capture: Equatable, Sendable {
+        public let usage: ProviderUsage
+        /// Symlinks already resolved. `nil` when the payload named no
+        /// transcript, which leaves nothing to attribute it by.
+        let transcriptPath: String?
+
+        /// - Parameter root: a config directory as returned by `root(of:)`.
+        public func isInside(_ root: String) -> Bool {
+            transcriptPath?.hasPrefix(root) ?? false
+        }
+    }
+
+    public static func capture(_ data: Data, observedAt: Date) throws -> Capture {
+        let payload = try JSONDecoder().decode(Payload.self, from: data)
+        return Capture(
+            usage: usage(from: payload.rate_limits, observedAt: observedAt),
+            transcriptPath: payload.transcript_path.map {
+                URL(fileURLWithPath: $0).resolvingSymlinksInPath().path
+            }
+        )
+    }
+
+    /// A config directory in the form captures are matched against: symlinks
+    /// resolved, because a dotfiles-managed `~/.claude` may be reported through
+    /// either name, and a trailing separator, so `~/.claude-work` is not taken
+    /// to be inside `~/.claude`.
+    public static func root(of configDirectory: URL) -> String {
+        let path = configDirectory.resolvingSymlinksInPath().path
+        return path.hasSuffix("/") ? path : path + "/"
+    }
+
+    private static func usage(from limits: Payload.RateLimits?, observedAt: Date) -> ProviderUsage {
+        guard let limits else {
             // Documented as subscriber-only. Absence is normal, not an error,
             // and must surface as "no data" rather than zero usage.
             return .empty
         }
 
         // The statusline payload carries only these two windows. Scoped weekly
-        // limits exist but are not exposed here — that is precisely why this is
-        // the fallback source and the usage API is preferred.
+        // limits exist but are not exposed here, which is what the usage API
+        // is still polled for.
         return ProviderUsage(windows: [
             window(limits.five_hour, kind: .session, observedAt: observedAt),
             window(limits.seven_day, kind: .weeklyAll, observedAt: observedAt),
@@ -67,14 +103,5 @@ public enum ClaudeStatuslineParser {
             ),
             isActive: false
         )
-    }
-
-    /// Compared with a trailing separator so `~/.claude-work` is not taken to be
-    /// inside `~/.claude`. Symlinks are resolved on both sides because a
-    /// dotfiles-managed `~/.claude` may be reported through either name.
-    private static func isPath(_ path: String, inside directory: URL) -> Bool {
-        let root = directory.resolvingSymlinksInPath().path
-        let candidate = URL(fileURLWithPath: path).resolvingSymlinksInPath().path
-        return candidate.hasPrefix(root.hasSuffix("/") ? root : root + "/")
     }
 }

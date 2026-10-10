@@ -79,15 +79,35 @@ public struct ShimInstaller: Sendable {
 
     // MARK: - Shim script
 
-    private func writeShim(delegate: String?) throws {
+    /// Brings an installed script up to the one this build ships.
+    ///
+    /// The script is the app's own file, and other logins' settings may point
+    /// at it too, so it is replaced wherever it exists and without touching any
+    /// `settings.json`. Returns whether anything was written.
+    @discardableResult
+    public func refreshScript() throws -> Bool {
+        guard FileManager.default.fileExists(atPath: paths.shimScript.path) else { return false }
+        let installed = try? String(contentsOf: paths.shimScript, encoding: .utf8)
+        guard try renderedScript() != installed else { return false }
+
+        try writeShim(delegate: installedDelegate())
+        try? FileManager.default.removeItem(at: paths.claudeRawState)
+        return true
+    }
+
+    private func renderedScript() throws -> String {
         guard
             let url = Bundle.module.url(forResource: "statusline-shim", withExtension: "sh"),
             let template = try? String(contentsOf: url, encoding: .utf8)
         else { throw ShimInstallError.templateMissing }
 
-        let script = template
-            .replacingOccurrences(of: "__STATE_FILE__", with: paths.claudeRawState.path)
+        return template
+            .replacingOccurrences(of: "__STATE_DIR__", with: paths.claudeSessions.path)
             .replacingOccurrences(of: "__DELEGATE_FILE__", with: paths.shimDelegateFile.path)
+    }
+
+    private func writeShim(delegate: String?) throws {
+        let script = try renderedScript()
 
         try FileManager.default.createDirectory(
             at: paths.claudeDirectory, withIntermediateDirectories: true

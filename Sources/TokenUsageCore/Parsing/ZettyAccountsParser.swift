@@ -36,6 +36,7 @@ public enum ZettyAccountsParser {
                 ClaudeAccount(
                     id: entry.id,
                     directory: expand(entry.directory, home: home),
+                    owner: .zetty,
                     displayName: entry.name,
                     email: entry.email,
                     organizationName: entry.orgName

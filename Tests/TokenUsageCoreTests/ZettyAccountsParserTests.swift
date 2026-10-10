@@ -48,6 +48,13 @@ final class ZettyAccountsParserTests: XCTestCase {
         XCTAssertEqual(warda.organizationName, "Example Co")
     }
 
+    func testListedAccountsBelongToZetty() throws {
+        let accounts = try ZettyAccountsParser.parse(fixture("zetty-accounts.json"), home: home)
+
+        XCTAssertEqual(accounts.first?.owner, .claudeCode)
+        XCTAssertTrue(accounts.dropFirst().allSatisfy { $0.owner == .zetty })
+    }
+
     /// The default entry is not in the `accounts` array — it is reported
     /// separately — and zetty carries no identity for it.
     func testDefaultAccountIsSynthesisedWithoutIdentity() throws {

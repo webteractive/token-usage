@@ -1,33 +1,55 @@
 import CryptoKit
 import Foundation
 
-/// One Claude login on this machine: the default `~/.claude` one, or a zetty
-/// account under `~/.zetty/accounts/<id>`.
+/// One Claude login on this machine: the default `~/.claude` one, a zetty
+/// account under `~/.zetty/accounts/<id>`, or the one Tinker keeps for itself.
 ///
 /// Identity fields are optional because an account directory can exist before
 /// anyone has signed into it. Such an account is still listed and reports
 /// "not signed in" — it exists, and silence about it would be the same failure
 /// as printing 0% for "no data".
 public struct ClaudeAccount: Equatable, Sendable {
-    /// `"default"` for `~/.claude`, otherwise the zetty account id.
+
+    /// The tool a login belongs to, and so the one its sessions run under.
+    public enum Owner: Equatable, Sendable {
+        case claudeCode
+        case zetty
+        case tinker
+
+        /// The heading its logins are listed under.
+        public var sectionTitle: String {
+            switch self {
+            case .claudeCode: SourceCatalog.defaultSection
+            case .zetty: "Zetty"
+            case .tinker: "Tinker"
+            }
+        }
+    }
+
+    /// `"default"` for `~/.claude`, `"tinker"` for Tinker's login, otherwise the
+    /// zetty account id.
     public let id: String
     public let directory: URL
+    public let owner: Owner
     public let displayName: String?
     public let email: String?
     public let organizationName: String?
 
     public static let defaultID = "default"
+    public static let tinkerID = "tinker"
     public static let defaultKeychainService = "Claude Code-credentials"
 
     public init(
         id: String,
         directory: URL,
+        owner: Owner = .claudeCode,
         displayName: String? = nil,
         email: String? = nil,
         organizationName: String? = nil
     ) {
         self.id = id
         self.directory = directory
+        self.owner = owner
         self.displayName = displayName
         self.email = email
         self.organizationName = organizationName

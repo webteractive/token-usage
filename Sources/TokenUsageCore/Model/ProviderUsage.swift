@@ -94,3 +94,53 @@ public struct ProviderUsage: Equatable, Sendable {
         return best
     }
 }
+
+public extension ProviderUsage {
+    /// Readings whose reset times fall this close together describe one window.
+    /// The sources disagree by under a second — the API reports 05:59:59.58
+    /// where the statusline reports 06:00:00 — and no window is shorter than
+    /// hours.
+    static let sameWindowTolerance: TimeInterval = 300
+
+    /// Combines several readings of one quota into the best current picture.
+    ///
+    /// Per limit, the latest window wins, because an earlier one has already
+    /// reset. Within a window usage only climbs, so the highest percentage is
+    /// the newest reading whatever its timestamp says. That is what makes this
+    /// safe to run over session captures: an idle session goes on reporting
+    /// the figure it saw last, and taking the latest *writer* is how a login at
+    /// 75% came to be shown as 19%.
+    static func merged(_ readings: [ProviderUsage]) -> ProviderUsage {
+        let byKind = Dictionary(grouping: readings.flatMap(\.windows), by: \.kind)
+        return ProviderUsage(windows: byKind.values.compactMap(current))
+    }
+
+    private static func current(_ candidates: [QuotaWindow]) -> QuotaWindow? {
+        guard let latestReset = candidates.map(\.window.resetsAt).max() else { return nil }
+        let window = candidates.filter {
+            latestReset.timeIntervalSince($0.window.resetsAt) <= sameWindowTolerance
+        }
+        guard let top = window.max(by: { $0.window.usedPercent < $1.window.usedPercent }) else {
+            return nil
+        }
+
+        // A later reading that agrees to within rounding confirms the figure,
+        // so the result is as fresh as its most recent confirmation. Without
+        // this a statusline's whole 75 would outrank the API's 74.6 and then
+        // be dimmed as old.
+        let confirmedAt = window
+            .filter { top.window.usedPercent - $0.window.usedPercent < 1 }
+            .map(\.window.observedAt)
+            .max() ?? top.window.observedAt
+
+        return QuotaWindow(
+            kind: top.kind,
+            window: UsageWindow(
+                usedPercent: top.window.usedPercent,
+                resetsAt: top.window.resetsAt,
+                observedAt: confirmedAt
+            ),
+            isActive: window.contains(where: \.isActive)
+        )
+    }
+}

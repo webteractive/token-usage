@@ -13,8 +13,21 @@ struct DropdownView: View {
             // Deliberately not a ScrollView: this popover sizes itself to its
             // content, so a ScrollView has no height to propose and collapses
             // to a clipped sliver. Every account is listed in full instead.
-            ForEach(model.sources, id: \.id) { source in
-                sourceSection(source)
+            let sections = SourceCatalog.sections(model.sources)
+            ForEach(Array(sections.enumerated()), id: \.element.title) { index, section in
+                if index > 0 { Divider() }
+                // A lone heading would only say "Default" over what is already
+                // everything, so headings appear once there is a second tool.
+                if sections.count > 1 {
+                    Text(section.title)
+                        .font(.caption)
+                        .bold()
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(section.sources, id: \.id) { source in
+                    sourceSection(source)
+                        .padding(.leading, sections.count > 1 ? 8 : 0)
+                }
             }
 
             if case .notInstalled = model.shimStatus {
@@ -84,15 +97,16 @@ struct DropdownView: View {
         }
     }
 
-    /// Says plainly where a source's numbers came from, because the live and
-    /// fallback sources differ in completeness — and because only the default
-    /// account has a fallback at all.
+    /// Says plainly where a source's numbers came from, because the API and
+    /// the statusline captures differ in completeness.
     @ViewBuilder
     private func sourceBadge(_ id: SourceID) -> some View {
         switch model.sourceStatus[id] {
         case .live:
             Text("live").font(.caption2).foregroundStyle(.secondary)
-        case .degraded(let text), .unavailable(let text):
+        case .degraded(let text, let detail):
+            Text(text).font(.caption2).foregroundStyle(.orange).help(detail ?? text)
+        case .unavailable(let text):
             Text(text).font(.caption2).foregroundStyle(.orange)
         case nil:
             EmptyView()

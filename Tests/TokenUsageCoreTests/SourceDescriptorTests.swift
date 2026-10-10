@@ -7,6 +7,16 @@ final class SourceDescriptorTests: XCTestCase {
         ClaudeAccount(
             id: id,
             directory: URL(fileURLWithPath: "/Users/example/.zetty/accounts/\(id)"),
+            owner: .zetty,
+            displayName: name
+        )
+    }
+
+    private func tinkerAccount(_ name: String?) -> ClaudeAccount {
+        ClaudeAccount(
+            id: ClaudeAccount.tinkerID,
+            directory: URL(fileURLWithPath: "/Users/example/Library/Application Support/Tinker/claude"),
+            owner: .tinker,
             displayName: name
         )
     }
@@ -34,10 +44,8 @@ final class SourceDescriptorTests: XCTestCase {
             account("warda", "Warda"),
         ])
 
-        XCTAssertEqual(
-            sources.map(\.displayName),
-            ["Claude · Glen", "Claude · Devops", "Claude · Warda", "Codex"]
-        )
+        // The heading says whose login a row is, so only the account is named.
+        XCTAssertEqual(sources.map(\.displayName), ["Claude", "Devops", "Warda", "Codex"])
         XCTAssertEqual(sources.map(\.shortLabel), ["G", "D", "W", "X"])
     }
 
@@ -84,7 +92,7 @@ final class SourceDescriptorTests: XCTestCase {
             defaultAccount("Glen"), account("fresh", nil),
         ])
 
-        XCTAssertEqual(sources[1].displayName, "Claude · Fresh")
+        XCTAssertEqual(sources[1].displayName, "Fresh")
         XCTAssertEqual(sources[1].shortLabel, "F")
     }
 
@@ -112,5 +120,47 @@ final class SourceDescriptorTests: XCTestCase {
         XCTAssertEqual(sources.count, 3)
         XCTAssertEqual(SourceCatalog.shortLabels(for: []), [])
         XCTAssertEqual(SourceCatalog.shortLabels(for: ["", ""]).count, 2)
+    }
+
+    // MARK: - Sections
+
+    /// Default holds the tools' own logins, then one heading per tool that
+    /// keeps accounts of its own.
+    func testRowsAreListedUnderTheToolTheyBelongTo() {
+        let sections = SourceCatalog.sections(SourceCatalog.descriptors(claudeAccounts: [
+            defaultAccount("Glen"),
+            account("devops", "Devops"),
+            account("warda", "Warda"),
+            tinkerAccount("Acme"),
+        ]))
+
+        XCTAssertEqual(sections.map(\.title), ["Default", "Zetty", "Tinker"])
+        XCTAssertEqual(
+            sections.map { $0.sources.map(\.displayName) },
+            [["Claude", "Codex"], ["Devops", "Warda"], ["Acme"]]
+        )
+    }
+
+    /// Codex sits beside the default Claude login in the dropdown, yet keeps
+    /// its place at the end of the menu bar.
+    func testGroupingDoesNotReorderTheMenuBar() {
+        let sources = SourceCatalog.descriptors(claudeAccounts: [
+            defaultAccount("Glen"), account("devops", "Devops"), tinkerAccount("Acme"),
+        ])
+
+        XCTAssertEqual(sources.map(\.shortLabel), ["G", "D", "A", "X"])
+        XCTAssertEqual(SourceCatalog.sections(sources).first?.sources.map(\.id), [.claude("default"), .codex])
+    }
+
+    func testAMachineWithNoOtherToolsHasOneSection() {
+        let sections = SourceCatalog.sections(
+            SourceCatalog.descriptors(claudeAccounts: [defaultAccount("Glen")])
+        )
+
+        XCTAssertEqual(sections.map(\.title), ["Default"])
+    }
+
+    func testNoSourcesMeansNoSections() {
+        XCTAssertEqual(SourceCatalog.sections([]), [])
     }
 }

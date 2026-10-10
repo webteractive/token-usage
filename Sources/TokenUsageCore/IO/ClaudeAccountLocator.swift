@@ -1,6 +1,7 @@
 import Foundation
 
-/// Finds every Claude login on this machine.
+/// Finds every Claude login on this machine: the default one, zetty's accounts,
+/// and Tinker's.
 ///
 /// Primary source is `zetty accounts --json`, because zetty owns the mapping
 /// from account directory to agent — `~/.zetty/accounts/` holds Codex logins
@@ -46,13 +47,22 @@ public struct ClaudeAccountLocator: Sendable {
         let entries = (try? FileManager.default.contentsOfDirectory(
             atPath: paths.zettyAccounts.path
         )) ?? []
-        return Set(entries)
+        var names = Set(entries)
+        // A path separator cannot appear in a directory entry, so this cannot
+        // be mistaken for a zetty account of the same name.
+        if tinkerAccount() != nil { names.insert("/tinker") }
+        return names
     }
 
     /// Always returns at least the default account, so the app never renders an
     /// empty Claude section on a machine that simply has no zetty.
     public func discover() -> [ClaudeAccount] {
-        let discovered = fromZetty() ?? fromFilesystem()
+        var discovered = fromZetty() ?? fromFilesystem()
+        // An id names a row, so a zetty account already called "tinker" keeps
+        // it rather than sharing it.
+        if let tinker = tinkerAccount(), !discovered.contains(where: { $0.id == tinker.id }) {
+            discovered.append(tinker)
+        }
         return discovered.map(withIdentity)
     }
 
@@ -79,24 +89,37 @@ public struct ClaudeAccountLocator: Sendable {
                     atPath: url.appendingPathComponent(".claude.json").path
                 )
             }
-            .map { ClaudeAccount(id: $0.lastPathComponent, directory: $0) }
+            .map { ClaudeAccount(id: $0.lastPathComponent, directory: $0, owner: .zetty) }
             .sorted { $0.id < $1.id }
 
         return [fallback] + named
+    }
+
+    /// Tinker signs in to a config directory of its own. Its `.claude.json` is
+    /// what says someone has, the same signal the fallback scan goes by.
+    private func tinkerAccount() -> ClaudeAccount? {
+        let config = paths.tinkerClaudeDirectory.appendingPathComponent(".claude.json")
+        guard FileManager.default.fileExists(atPath: config.path) else { return nil }
+        return ClaudeAccount(
+            id: ClaudeAccount.tinkerID,
+            directory: paths.tinkerClaudeDirectory,
+            owner: .tinker
+        )
     }
 
     // MARK: - Identity
 
     private func withIdentity(_ account: ClaudeAccount) -> ClaudeAccount {
         // zetty already reports identity for the accounts it lists; only fill in
-        // what is missing, which is always the default account and any account
-        // discovered by the fallback scan.
+        // what is missing, which is always the default account, Tinker's, and
+        // any account discovered by the fallback scan.
         guard account.displayName == nil else { return account }
         guard let identity = readIdentity(for: account) else { return account }
 
         return ClaudeAccount(
             id: account.id,
             directory: account.directory,
+            owner: account.owner,
             displayName: identity.displayName,
             email: identity.emailAddress,
             organizationName: identity.organizationName

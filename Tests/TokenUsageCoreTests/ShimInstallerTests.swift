@@ -80,9 +80,9 @@ final class ShimInstallerTests: XCTestCase {
         try writeSettings(#"{"statusLine":{"command":"~/.claude/statusline.sh","type":"command"}}"#)
         try installer.install()
         let script = try String(contentsOf: paths.shimScript, encoding: .utf8)
-        XCTAssertFalse(script.contains("__STATE_FILE__"))
+        XCTAssertFalse(script.contains("__STATE_DIR__"))
         XCTAssertFalse(script.contains("__DELEGATE_FILE__"))
-        XCTAssertTrue(script.contains(paths.claudeRawState.path))
+        XCTAssertTrue(script.contains(paths.claudeSessions.path))
         XCTAssertEqual(try String(contentsOf: paths.shimDelegateFile, encoding: .utf8), "~/.claude/statusline.sh")
     }
 
@@ -163,10 +163,10 @@ final class ShimInstallerTests: XCTestCase {
 
         XCTAssertEqual(installer.status(), .installed(delegate: tricky))
 
-        let payload = #"{"rate_limits":{"five_hour":{"used_percentage":47,"resets_at":1}}}"#
+        let payload = #"{"session_id":"s1","rate_limits":{"five_hour":{"used_percentage":47,"resets_at":1}}}"#
         let output = try run(paths.shimScript.path, stdin: payload)
         XCTAssertEqual(output.trimmingCharacters(in: .whitespacesAndNewlines), "GOT:\(payload)")
-        XCTAssertEqual(try String(contentsOf: paths.claudeRawState, encoding: .utf8), payload)
+        XCTAssertEqual(try captured("s1"), payload)
     }
 
     func testUninstallRemovesDelegateSidecar() throws {
@@ -194,15 +194,151 @@ final class ShimInstallerTests: XCTestCase {
         XCTAssertEqual(output.trimmingCharacters(in: .whitespacesAndNewlines), "OUT:\(payload)")
     }
 
+    private func payload(session: String, sevenDay: Int, apiMs: Int, wallMs: Int = 0) -> String {
+        // Spaced the way a pretty-printer would, and with a nested limit, since
+        // the shim finds its way around this with patterns rather than a parser.
+        """
+        {"session_id": "\(session)", "cost": {"total_duration_ms": \(wallMs), "total_api_duration_ms": \(apiMs)},
+         "rate_limits": {"seven_day": {"used_percentage": \(sevenDay), "resets_at": 1791702000}}}
+        """
+    }
+
+    private func captured(_ session: String) throws -> String {
+        try String(contentsOf: captureURL(session), encoding: .utf8)
+    }
+
+    private func captureURL(_ session: String) -> URL {
+        paths.claudeSessions.appendingPathComponent("\(session).json")
+    }
+
+    private func backdate(_ session: String) throws -> Date {
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        try FileManager.default.setAttributes(
+            [.modificationDate: date], ofItemAtPath: captureURL(session).path
+        )
+        return date
+    }
+
+    private func modificationDate(_ session: String) throws -> Date? {
+        try FileManager.default.attributesOfItem(atPath: captureURL(session).path)[.modificationDate] as? Date
+    }
+
     func testShimCapturesPayloadToStateFile() throws {
         try writeSettings("{}")
         try installer.install()
 
-        let payload = #"{"rate_limits":{"five_hour":{"used_percentage":47,"resets_at":1787845497}}}"#
+        let payload = payload(session: "0afd1d8e-4a37", sevenDay: 19, apiMs: 100)
         _ = try run(paths.shimScript.path, stdin: payload)
 
-        let captured = try String(contentsOf: paths.claudeRawState, encoding: .utf8)
-        XCTAssertEqual(captured, payload)
+        XCTAssertEqual(try captured("0afd1d8e-4a37"), payload)
+    }
+
+    /// Sessions of one login each know the quota as of their own last request.
+    /// Sharing a file is how the one that rendered last hid the one that knew
+    /// the most.
+    func testShimKeepsEachSessionsPayloadApart() throws {
+        try writeSettings("{}")
+        try installer.install()
+
+        let idle = payload(session: "idle", sevenDay: 19, apiMs: 100)
+        let busy = payload(session: "busy", sevenDay: 75, apiMs: 900)
+        _ = try run(paths.shimScript.path, stdin: busy)
+        _ = try run(paths.shimScript.path, stdin: idle)
+
+        XCTAssertEqual(try captured("busy"), busy)
+        XCTAssertEqual(try captured("idle"), idle)
+    }
+
+    /// An idle session re-renders every few seconds with the same figures.
+    /// Touching the file then would date a days-old reading as current.
+    func testShimLeavesAnIdleSessionsFileAlone() throws {
+        try writeSettings("{}")
+        try installer.install()
+
+        _ = try run(paths.shimScript.path, stdin: payload(session: "s", sevenDay: 19, apiMs: 100, wallMs: 1))
+        let written = try backdate("s")
+        _ = try run(paths.shimScript.path, stdin: payload(session: "s", sevenDay: 19, apiMs: 100, wallMs: 99))
+
+        XCTAssertEqual(try modificationDate("s"), written)
+    }
+
+    func testShimRewritesWhenTheFiguresMove() throws {
+        try writeSettings("{}")
+        try installer.install()
+
+        _ = try run(paths.shimScript.path, stdin: payload(session: "s", sevenDay: 19, apiMs: 100))
+        let written = try backdate("s")
+        let moved = payload(session: "s", sevenDay: 20, apiMs: 100)
+        _ = try run(paths.shimScript.path, stdin: moved)
+
+        XCTAssertNotEqual(try modificationDate("s"), written)
+        XCTAssertEqual(try captured("s"), moved)
+    }
+
+    /// A working session whose percentage has not ticked over is still being
+    /// told the figure again, and must not be dimmed as stale.
+    func testShimRewritesWhenTheAPIAnswersAgainWithTheSameFigures() throws {
+        try writeSettings("{}")
+        try installer.install()
+
+        _ = try run(paths.shimScript.path, stdin: payload(session: "s", sevenDay: 19, apiMs: 100))
+        let written = try backdate("s")
+        _ = try run(paths.shimScript.path, stdin: payload(session: "s", sevenDay: 19, apiMs: 250))
+
+        XCTAssertNotEqual(try modificationDate("s"), written)
+    }
+
+    /// A payload naming no session cannot be filed, and one whose id is not a
+    /// plain token must never become a path.
+    func testShimCapturesNothingWithoutAUsableSessionID() throws {
+        try writeSettings("{}")
+        try installer.install()
+
+        _ = try run(paths.shimScript.path, stdin: #"{"rate_limits":{"seven_day":{"used_percentage":1,"resets_at":1}}}"#)
+        _ = try run(paths.shimScript.path, stdin: #"{"session_id":"../../escape","rate_limits":{}}"#)
+
+        let written = (try? FileManager.default.contentsOfDirectory(atPath: paths.claudeSessions.path)) ?? []
+        XCTAssertEqual(written, [])
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: paths.stateDirectory.appendingPathComponent("escape.json").path
+        ))
+    }
+
+    // MARK: - Upgrading an installed shim
+
+    /// Sessions run whatever script is on disk, so a build that changes the
+    /// shim has to replace the installed copy itself.
+    func testRefreshScriptReplacesAnOutdatedShim() throws {
+        try writeSettings(#"{"statusLine":{"command":"~/.claude/statusline.sh","type":"command"}}"#)
+        try installer.install()
+        let current = try String(contentsOf: paths.shimScript, encoding: .utf8)
+        try Data("#!/bin/sh\n# an older build's shim\n".utf8).write(to: paths.shimScript)
+        try FileManager.default.createDirectory(at: paths.stateDirectory, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: paths.claudeRawState)
+
+        XCTAssertTrue(try installer.refreshScript())
+
+        XCTAssertEqual(try String(contentsOf: paths.shimScript, encoding: .utf8), current)
+        XCTAssertTrue(FileManager.default.isExecutableFile(atPath: paths.shimScript.path))
+        XCTAssertEqual(installer.status(), .installed(delegate: "~/.claude/statusline.sh"))
+        // The shared capture the old shim wrote would only go stale.
+        XCTAssertFalse(FileManager.default.fileExists(atPath: paths.claudeRawState.path))
+    }
+
+    func testRefreshScriptLeavesACurrentShimAlone() throws {
+        try writeSettings("{}")
+        try installer.install()
+
+        XCTAssertFalse(try installer.refreshScript())
+    }
+
+    /// Never installs on its own: wiring the shim into settings is the user's call.
+    func testRefreshScriptDoesNothingWhenNotInstalled() throws {
+        try writeSettings("{}")
+
+        XCTAssertFalse(try installer.refreshScript())
+        XCTAssertFalse(FileManager.default.fileExists(atPath: paths.shimScript.path))
+        XCTAssertNil(try settingsCommand())
     }
 
     /// If the state write fails, the user's statusline must still run.

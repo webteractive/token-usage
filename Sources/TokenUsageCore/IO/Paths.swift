@@ -16,7 +16,13 @@ public struct Paths: Sendable {
             .appendingPathComponent("Library/Application Support/TokenUsage", isDirectory: true)
     }
 
-    /// The verbatim statusline payload, written by the shim.
+    /// One verbatim statusline payload per Claude Code session, written by the
+    /// shim and named after the session.
+    public var claudeSessions: URL {
+        stateDirectory.appendingPathComponent("claude-sessions", isDirectory: true)
+    }
+    /// The single capture every session used to overwrite. Nothing reads it
+    /// now; it is named only so an upgrade can remove it.
     public var claudeRawState: URL { stateDirectory.appendingPathComponent("claude-raw.json") }
     public var codexState: URL { stateDirectory.appendingPathComponent("codex.json") }
 
@@ -43,6 +49,17 @@ public struct Paths: Sendable {
     public var zettyAccounts: URL {
         home.appendingPathComponent(".zetty/accounts", isDirectory: true)
     }
+
+    public var tinkerDirectory: URL {
+        home.appendingPathComponent("Library/Application Support/Tinker", isDirectory: true)
+    }
+    /// Tinker starts Claude Code with this as its config directory, which makes
+    /// it a login of its own with its own Keychain item.
+    public var tinkerClaudeDirectory: URL {
+        tinkerDirectory.appendingPathComponent("claude", isDirectory: true)
+    }
+    /// The quota snapshot Tinker's own statusline keeps.
+    public var tinkerUsage: URL { tinkerDirectory.appendingPathComponent("usage.json") }
 
     /// The default login's `oauthAccount` lives *beside* `~/.claude`, not inside
     /// it — `~/.claude/.claude.json` does not exist. Non-default accounts keep

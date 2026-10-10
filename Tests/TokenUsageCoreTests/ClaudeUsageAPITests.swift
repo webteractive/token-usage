@@ -6,10 +6,12 @@ final class ClaudeUsageAPITests: XCTestCase {
         private var statuses: [Int]
         private var requests: [URLRequest] = []
         private let body: Data
+        private let headers: [String: String]?
 
-        init(statuses: [Int], body: Data) {
+        init(statuses: [Int], body: Data, headers: [String: String]? = nil) {
             self.statuses = statuses
             self.body = body
+            self.headers = headers
         }
 
         func send(_ request: URLRequest) -> (Data, URLResponse) {
@@ -19,7 +21,7 @@ final class ClaudeUsageAPITests: XCTestCase {
                 url: request.url!,
                 statusCode: status,
                 httpVersion: nil,
-                headerFields: nil
+                headerFields: headers
             )!
             return (body, response)
         }
@@ -121,5 +123,43 @@ final class ClaudeUsageAPITests: XCTestCase {
         let requestCount = await transport.requestCount
         XCTAssertEqual(source.readCount, 1)
         XCTAssertEqual(requestCount, 1)
+    }
+
+    private func rateLimitError(retryAfter: String?) async throws -> ClaudeUsageAPIError? {
+        let source = CredentialDataSource([
+            credentialBlob(token: "cached", now: now, expiresInHours: 1),
+        ])
+        let transport = ScriptedTransport(
+            statuses: [429],
+            body: Data(),
+            headers: retryAfter.map { ["Retry-After": $0] }
+        )
+        let api = ClaudeUsageAPI(credentials: KeychainCredentials(readData: source.read)) {
+            await transport.send($0)
+        }
+
+        do {
+            _ = try await api.fetch(now: now)
+            return nil
+        } catch {
+            let requestCount = await transport.requestCount
+            XCTAssertEqual(requestCount, 1, "a refusal must not be retried on the spot")
+            return error as? ClaudeUsageAPIError
+        }
+    }
+
+    func testRateLimitCarriesTheServersHint() async throws {
+        let error = try await rateLimitError(retryAfter: "600")
+        XCTAssertEqual(error, .rateLimited(retryAfter: 600))
+    }
+
+    /// The endpoint answers `retry-after: 0` while it goes on refusing, which
+    /// is no hint at all.
+    func testRateLimitDiscardsAZeroHint() async throws {
+        let zero = try await rateLimitError(retryAfter: "0")
+        let absent = try await rateLimitError(retryAfter: nil)
+
+        XCTAssertEqual(zero, .rateLimited(retryAfter: nil))
+        XCTAssertEqual(absent, .rateLimited(retryAfter: nil))
     }
 }
