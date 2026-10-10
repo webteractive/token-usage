@@ -26,7 +26,7 @@ let project = Project(
                 "LSUIElement": true,
                 "CFBundleName": "Token Usage",
                 "CFBundleDisplayName": "Token Usage",
-                "CFBundleShortVersionString": "0.1.6",
+                "CFBundleShortVersionString": "0.1.7",
                 "LSMultipleInstancesProhibited": true,
                 "LSApplicationCategoryType": "public.app-category.developer-tools",
             ]),
